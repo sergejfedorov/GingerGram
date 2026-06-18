@@ -19,6 +19,7 @@
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
 #include <algorithm>
+#include <cstring>
 #include <utility>
 #include <openssl/bn.h>
 #include "ByteStream.h"
@@ -36,6 +37,12 @@
 
 static pthread_mutex_t proxyJitterMutex = PTHREAD_MUTEX_INITIALIZER;
 static int64_t lastProxyConnectTime = 0;
+
+static constexpr int32_t MT_PROXY_TLS_PROFILE_FIREFOX = 1;
+static constexpr int32_t MT_PROXY_TLS_PROFILE_ANDROID_CHROME = 2;
+static constexpr int32_t MT_PROXY_TLS_PROFILE_YANDEX = 3;
+static constexpr int32_t MT_PROXY_TLS_PROFILE_FIREFOX_ANDROID = 4;
+static constexpr int32_t MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP = 5;
 
 // Crypto-secure RNG for variable bytes inside the fake TLS profile: extension order and
 // ECH/padding lengths. Transport timing/data-path stays on the tsrman-proven code path.
@@ -181,7 +188,7 @@ public:
             grease[a] = (uint8_t) ((grease[a] & 0xf0) + 0x0A);
         }
         for (size_t i = 1; i < MAX_GREASE; i += 2) {
-            if (grease[i] == grease[i + 1]) {
+            if (grease[i] == grease[i - 1]) {
                 grease[i] ^= 0x10;
             }
         }
@@ -277,10 +284,9 @@ public:
 
     };
 
-    static const TlsHello &getFirefoxDefault() {
-        static TlsHello result = [] {
-            TlsHello res;
-            res.ops = {
+    static TlsHello getFirefoxDefault() {
+        TlsHello res;
+        res.ops = {
                 Op::string("\x16\x03\x01", 3),
                 Op::begin_scope(),
                 Op::string("\x01\x00", 2),
@@ -315,7 +321,8 @@ public:
                 Op::string("\x00\x22\x00\x0a\x00\x08\x04\x03\x05\x03\x06\x03\x02\x03", 14),
                 Op::string("\x00\x33\x05\x2f\x05\x2d", 6),
                 Op::string("\x11\xec\x04\xc0", 4),
-                Op::random(1216),
+                Op::M(),
+                Op::K(),
                 Op::string("\x00\x1d\x00\x20", 4),
                 Op::K(),
                 Op::string("\x00\x17\x00\x41", 4),
@@ -331,22 +338,19 @@ public:
                 Op::string("\x00\x00\x01\x00\x01", 5),
                 Op::random(1),
                 Op::string("\x00\x20", 2),
-                Op::random(32),
+                Op::K(),
                 Op::string("\x00\xef", 2),
                 Op::random(239),
                 Op::end_scope(),
                 Op::end_scope(),
                 Op::end_scope()
-            };
-            return res;
-        }();
-        return result;
+        };
+        return res;
     }
 
-    static const TlsHello &getDefault() {
-        static TlsHello result = [] {
-            TlsHello res;
-            res.ops = {
+    static TlsHello getDefault() {
+        TlsHello res;
+        res.ops = {
                     Op::string("\x16\x03\x01", 3),
                     Op::begin_scope(),
                     Op::string("\x01\x00", 2),
@@ -408,7 +412,7 @@ public:
                             Op::string("\x00\x00\x01\x00\x01", 5),
                             Op::random(1),
                             Op::string("\x00\x20", 2),
-                            Op::random(32),
+                            Op::K(),
                             Op::begin_scope(),
                             Op::E(),
                             Op::end_scope(),
@@ -422,10 +426,201 @@ public:
                     Op::end_scope(),
                     Op::end_scope(),
                     Op::end_scope()
-            };
-            return res;
-        }();
-        return result;
+        };
+        return res;
+    }
+
+    static TlsHello getAndroidChromeDefault() {
+        return getDefault();
+    }
+
+    static TlsHello getFirefoxAndroidDefault() {
+        TlsHello res;
+        res.ops = {
+                Op::string("\x16\x03\x01", 3),
+                Op::begin_scope(),
+                Op::string("\x01\x00", 2),
+                Op::begin_scope(),
+                Op::string("\x03\x03", 2),
+                Op::zero(32),
+                Op::string("\x20", 1),
+                Op::random(32),
+                Op::string("\x00\x22", 2),
+                Op::string("\x13\x01\x13\x03\x13\x02\xc0\x2b\xc0\x2f\xcc\xa9\xcc\xa8\xc0\x2c\xc0\x30\xc0\x0a\xc0\x09\xc0\x13\xc0\x14\x00\x9c\x00\x9d\x00\x2f\x00\x35", 34),
+                Op::string("\x01\x00", 2),
+                Op::begin_scope(),
+                Op::string("\x00\x00", 2),
+                Op::begin_scope(),
+                Op::begin_scope(),
+                Op::string("\x00", 1),
+                Op::begin_scope(),
+                Op::domain(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::string("\x00\x17\x00\x00", 4),
+                Op::string("\xff\x01\x00\x01\x00", 5),
+                Op::string("\x00\x0a\x00\x10\x00\x0e\x11\xec\x00\x1d\x00\x17\x00\x18\x00\x19\x01\x00\x01\x01", 20),
+                Op::string("\x00\x0b\x00\x02\x01\x00", 6),
+                Op::string("\x00\x10\x00\x0e\x00\x0c\x02\x68\x32\x08\x68\x74\x74\x70\x2f\x31\x2e\x31", 18),
+                Op::string("\x00\x05\x00\x05\x01\x00\x00\x00\x00", 9),
+                Op::string("\x00\x22\x00\x0a\x00\x08\x04\x03\x05\x03\x06\x03\x02\x03", 14),
+                Op::string("\x00\x33\x05\x2f\x05\x2d", 6),
+                Op::string("\x11\xec\x04\xc0", 4),
+                Op::M(),
+                Op::K(),
+                Op::string("\x00\x1d\x00\x20", 4),
+                Op::K(),
+                Op::string("\x00\x17\x00\x41", 4),
+                Op::random(65),
+                Op::string("\x00\x2b\x00\x05\x04\x03\x04\x03\x03", 9),
+                Op::string("\x00\x0d\x00\x18\x00\x16\x04\x03\x05\x03\x06\x03\x08\x04\x08\x05\x08\x06\x04\x01\x05\x01\x06\x01\x02\x03\x02\x01", 28),
+                Op::string("\x00\x2d\x00\x02\x01\x01", 6),
+                Op::string("\x00\x1c\x00\x02\x40\x01", 6),
+                Op::string("\x00\x1b\x00\x07\x06\x00\x01\x00\x02\x00\x03", 11),
+                Op::string("\xfe\x0d\x01\xb9", 4),
+                Op::string("\x00\x00\x01\x00\x01", 5),
+                Op::random(1),
+                Op::string("\x00\x20", 2),
+                Op::K(),
+                Op::string("\x01\x8f", 2),
+                Op::random(399),
+                Op::string("\x00\x29", 2),
+                Op::begin_scope(),
+                Op::string("\x00\x6f\x00\x69", 4),
+                Op::random(105),
+                Op::random(4),
+                Op::string("\x00\x21\x20", 3),
+                Op::random(32),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope()
+        };
+        return res;
+    }
+
+    static TlsHello getAndroidOkHttpDefault() {
+        TlsHello res;
+        res.ops = {
+                Op::string("\x16\x03\x01", 3),
+                Op::begin_scope(),
+                Op::string("\x01\x00", 2),
+                Op::begin_scope(),
+                Op::string("\x03\x03", 2),
+                Op::zero(32),
+                Op::string("\x20", 1),
+                Op::random(32),
+                Op::string("\x00\x20", 2),
+                Op::grease(0),
+                Op::string("\x13\x01\x13\x02\x13\x03\xc0\x2b\xc0\x2f\xc0\x2c\xc0\x30\xcc\xa9\xcc\xa8\xc0\x13\xc0\x14\x00\x9c\x00\x9d\x00\x2f\x00\x35\x01\x00", 32),
+                Op::begin_scope(),
+                Op::grease(2),
+                Op::string("\x00\x00", 2),
+                Op::string("\x00\x00", 2),
+                Op::begin_scope(),
+                Op::begin_scope(),
+                Op::string("\x00", 1),
+                Op::begin_scope(),
+                Op::domain(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::string("\x00\x0a\x00\x0a\x00\x08", 6),
+                Op::grease(4),
+                Op::string("\x00\x1d\x00\x17\x00\x18", 6),
+                Op::string("\x00\x0b\x00\x02\x01\x00", 6),
+                Op::string("\x00\x0d\x00\x0e\x00\x0c\x04\x03\x05\x03\x04\x01\x05\x01\x02\x01\x02\x03", 18),
+                Op::string("\x00\x10\x00\x0e\x00\x0c\x02\x68\x32\x08\x68\x74\x74\x70\x2f\x31\x2e\x31", 18),
+                Op::string("\x00\x2b\x00\x07\x06", 5),
+                Op::grease(6),
+                Op::string("\x03\x04\x03\x03", 4),
+                Op::string("\x00\x2d\x00\x02\x01\x01", 6),
+                Op::string("\x00\x33\x00\x26\x00\x24\x00\x1d\x00\x20", 10),
+                Op::K(),
+                Op::grease(3),
+                Op::string("\x00\x01\x00", 3),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope()
+        };
+        return res;
+    }
+
+    static TlsHello getYandexDefault() {
+        TlsHello res;
+        res.ops = {
+                Op::string("\x16\x03\x01", 3),
+                Op::begin_scope(),
+                Op::string("\x01\x00", 2),
+                Op::begin_scope(),
+                Op::string("\x03\x03", 2),
+                Op::zero(32),
+                Op::string("\x20", 1),
+                Op::random(32),
+                Op::string("\x00\x20", 2),
+                Op::grease(0),
+                Op::string("\x13\x01\x13\x02\x13\x03\xc0\x2b\xc0\x2f\xc0\x2c\xc0\x30\xcc\xa9\xcc\xa8\xc0\x13\xc0\x14\x00\x9c\x00\x9d\x00\x2f\x00\x35\x01\x00", 32),
+                Op::begin_scope(),
+                Op::grease(2),
+                Op::string("\x00\x00", 2),
+                Op::string("\x00\x17\x00\x00", 4),
+                Op::string("\x00\x0d\x00\x12\x00\x10\x04\x03\x08\x04\x04\x01\x05\x03\x08\x05\x05\x01\x08\x06\x06\x01", 22),
+                Op::string("\x00\x00", 2),
+                Op::begin_scope(),
+                Op::begin_scope(),
+                Op::string("\x00", 1),
+                Op::begin_scope(),
+                Op::domain(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::string("\x00\x0b\x00\x02\x01\x00", 6),
+                Op::string("\x00\x2d\x00\x02\x01\x01", 6),
+                Op::string("\x00\x1b\x00\x03\x02\x00\x02", 7),
+                Op::string("\x00\x10\x00\x0e\x00\x0c\x02\x68\x32\x08\x68\x74\x74\x70\x2f\x31\x2e\x31", 18),
+                Op::string("\xff\x01\x00\x01\x00", 5),
+                Op::string("\x00\x23\x00\x00", 4),
+                Op::string("\x00\x2b\x00\x07\x06", 5),
+                Op::grease(6),
+                Op::string("\x03\x04\x03\x03", 4),
+                Op::string("\x00\x12\x00\x00", 4),
+                Op::string("\x00\x05\x00\x05\x01\x00\x00\x00\x00", 9),
+                Op::string("\x44\xcd\x00\x05\x00\x03\x02\x68\x32", 9),
+                Op::string("\x00\x0a\x00\x0c\x00\x0a", 6),
+                Op::grease(4),
+                Op::string("\x11\xec\x00\x1d\x00\x17\x00\x18", 8),
+                Op::string("\xfe\x0d", 2),
+                Op::begin_scope(),
+                Op::string("\x00\x00\x01\x00\x01", 5),
+                Op::random(1),
+                Op::string("\x00\x20", 2),
+                Op::K(),
+                Op::begin_scope(),
+                Op::E(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::string("\x00\x33\x04\xef\x04\xed", 6),
+                Op::grease(4),
+                Op::string("\x00\x01\x00\x11\xec\x04\xc0", 7),
+                Op::M(),
+                Op::K(),
+                Op::string("\x00\x1d\x00\x20", 4),
+                Op::K(),
+                Op::grease(3),
+                Op::string("\x00\x00", 2),
+                Op::string("\x00\x29", 2),
+                Op::begin_scope(),
+                Op::string("\x00\x6f\x00\x69", 4),
+                Op::random(105),
+                Op::random(4),
+                Op::string("\x00\x21\x20", 3),
+                Op::random(32),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope(),
+                Op::end_scope()
+        };
+        return res;
     }
 
     uint32_t writeToBuffer(uint8_t *data) {
@@ -541,6 +736,102 @@ private:
         }
     }
 };
+
+static int32_t normalizeMtProxyTlsProfile(int32_t profile) {
+    if (profile >= MT_PROXY_TLS_PROFILE_FIREFOX && profile <= MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP) {
+        return profile;
+    }
+    return MT_PROXY_TLS_PROFILE_ANDROID_CHROME;
+}
+
+static const char *mtProxyTlsProfileName(int32_t profile) {
+    switch (normalizeMtProxyTlsProfile(profile)) {
+        case MT_PROXY_TLS_PROFILE_FIREFOX:
+            return "firefox";
+        case MT_PROXY_TLS_PROFILE_ANDROID_CHROME:
+            return "android_chrome";
+        case MT_PROXY_TLS_PROFILE_YANDEX:
+            return "yandex";
+        case MT_PROXY_TLS_PROFILE_FIREFOX_ANDROID:
+            return "firefox_android";
+        case MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP:
+            return "android_okhttp";
+        default:
+            return "android_chrome";
+    }
+}
+
+static TlsHello selectMtProxyTlsHello(int32_t profile) {
+    switch (normalizeMtProxyTlsProfile(profile)) {
+        case MT_PROXY_TLS_PROFILE_FIREFOX:
+            return TlsHello::getFirefoxDefault();
+        case MT_PROXY_TLS_PROFILE_YANDEX:
+            return TlsHello::getYandexDefault();
+        case MT_PROXY_TLS_PROFILE_FIREFOX_ANDROID:
+            return TlsHello::getFirefoxAndroidDefault();
+        case MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP:
+            return TlsHello::getAndroidOkHttpDefault();
+        case MT_PROXY_TLS_PROFILE_ANDROID_CHROME:
+        default:
+            return TlsHello::getAndroidChromeDefault();
+    }
+}
+
+static bool isGreaseValue(uint16_t value) {
+    uint8_t high = (uint8_t) ((value >> 8) & 0xff);
+    uint8_t low = (uint8_t) (value & 0xff);
+    return high == low && (low & 0x0f) == 0x0a;
+}
+
+static bool validateServerCompatibleHello(const uint8_t *data, uint32_t size, const std::string &domain, const char *profileName) {
+    if (size < 100 || size > 4096) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s invalid hello size=%u", profileName, size);
+        return false;
+    }
+    if (data[0] != 0x16 || data[1] != 0x03 || data[2] != 0x01 || data[5] != 0x01 || data[9] != 0x03 || data[10] != 0x03) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s invalid hello prefix", profileName);
+        return false;
+    }
+    uint32_t recordLength = ((uint32_t) data[3] << 8) | data[4];
+    uint32_t handshakeLength = ((uint32_t) data[6] << 16) | ((uint32_t) data[7] << 8) | data[8];
+    if (recordLength + 5 != size || handshakeLength + 9 != size) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s invalid hello lengths record=%u handshake=%u size=%u", profileName, recordLength, handshakeLength, size);
+        return false;
+    }
+
+    const uint32_t cipherSuitesOffset = 76;
+    if (size <= cipherSuitesOffset + 2) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s too short for cipher suites", profileName);
+        return false;
+    }
+    uint32_t cipherSuitesLength = ((uint32_t) data[cipherSuitesOffset] << 8) | data[cipherSuitesOffset + 1];
+    uint32_t cipherSuitesBegin = cipherSuitesOffset + 2;
+    uint32_t cipherSuitesEnd = cipherSuitesBegin + cipherSuitesLength;
+    if (cipherSuitesLength < 2 || (cipherSuitesLength % 2) != 0 || cipherSuitesEnd > size) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s invalid cipher suites length=%u", profileName, cipherSuitesLength);
+        return false;
+    }
+
+    uint16_t firstCipher = 0;
+    for (uint32_t offset = cipherSuitesBegin; offset + 1 < cipherSuitesEnd; offset += 2) {
+        uint16_t cipher = ((uint16_t) data[offset] << 8) | data[offset + 1];
+        if (!isGreaseValue(cipher)) {
+            firstCipher = cipher; // first non-GREASE cipher must be TLS_AES_* for MTProxy server compatibility.
+            break;
+        }
+    }
+    if (firstCipher != 0x1301 && firstCipher != 0x1302 && firstCipher != 0x1303) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s invalid first cipher=0x%04x", profileName, firstCipher);
+        return false;
+    }
+
+    size_t domainSize = std::min(domain.size(), (size_t) 253);
+    if (domainSize == 0 || std::search(data, data + size, (const uint8_t *) domain.data(), (const uint8_t *) domain.data() + domainSize) == data + size) {
+        if (LOGS_ENABLED) DEBUG_E("mtproxy_startup profile %s missing SNI domain size=%zu", profileName, domainSize);
+        return false;
+    }
+    return true;
+}
 
 ConnectionSocket::ConnectionSocket(int32_t instance) {
     instanceNum = instance;
@@ -722,6 +1013,7 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
     adjustWriteOpAfterResolve = false;
     currentSecret = "";
     currentSecretDomain = "";
+    currentProxyTlsProfile = normalizeMtProxyTlsProfile(MT_PROXY_TLS_PROFILE_ANDROID_CHROME);
     tlsState = 0;
     mtproxySocketConnectedLogged = false;
     ConnectionsManager::getInstance(instanceNum).attachConnection(this);
@@ -732,10 +1024,12 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
     std::string *proxyAddress = &overrideProxyAddress;
     std::string *proxySecret = &overrideProxySecret;
     uint16_t proxyPort = overrideProxyPort;
+    int32_t proxyTlsProfile = overrideProxyTlsProfile;
     if (proxyAddress->empty()) {
         proxyAddress = &ConnectionsManager::getInstance(instanceNum).proxyAddress;
         proxyPort = ConnectionsManager::getInstance(instanceNum).proxyPort;
         proxySecret = &ConnectionsManager::getInstance(instanceNum).proxySecret;
+        proxyTlsProfile = ConnectionsManager::getInstance(instanceNum).proxyTlsProfile;
     }
 
     if (!proxyAddress->empty()) {
@@ -753,6 +1047,7 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
             proxyAuthState = 10;
             currentSecret = proxySecret->substr(1, 16);
             currentSecretDomain = proxySecret->substr(17);
+            currentProxyTlsProfile = normalizeMtProxyTlsProfile(proxyTlsProfile);
             tempBuffLength = 65 * 1024;
         } else {
             proxyAuthState = 0;
@@ -838,6 +1133,7 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
             proxyAuthState = 10;
             currentSecret = secret.substr(1, 16);
             currentSecretDomain = secret.substr(17);
+            currentProxyTlsProfile = normalizeMtProxyTlsProfile(ConnectionsManager::getInstance(instanceNum).proxyTlsProfile);
             tempBuffLength = 65 * 1024;
         } else {
             proxyAuthState = 0;
@@ -853,7 +1149,7 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
         }
     }
 
-    if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup connect_start proxy_state=%d domain_len=%d address=%s port=%u", this, (int) proxyAuthState, (int) currentSecretDomain.size(), currentAddress.c_str(), (unsigned int) currentPort);
+    if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup connect_start proxy_state=%d domain_len=%d profile=%s address=%s port=%u", this, (int) proxyAuthState, (int) currentSecretDomain.size(), mtProxyTlsProfileName(currentProxyTlsProfile), currentAddress.c_str(), (unsigned int) currentPort);
     openConnectionInternal(ipv6);
 }
 
@@ -1181,9 +1477,15 @@ void ConnectionSocket::onEvent(uint32_t events) {
                         lastEventTime = ConnectionsManager::getInstance(instanceNum).getCurrentTimeMonotonicMillis();
                         tlsHashMismatch = false;
                         proxyAuthState = 11;
-                        TlsHello hello = TlsHello::getFirefoxDefault();
+                        const char *profileName = mtProxyTlsProfileName(currentProxyTlsProfile);
+                        TlsHello hello = selectMtProxyTlsHello(currentProxyTlsProfile);
                         hello.setDomain(currentSecretDomain);
                         uint32_t size = hello.writeToBuffer(tempBuffer->bytes);
+                        if (!validateServerCompatibleHello(tempBuffer->bytes, size, currentSecretDomain, profileName)) {
+                            closeSocket(1, -1);
+                            return;
+                        }
+                        if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup profile selected=%s id=%d hello=%u", this, profileName, (int) normalizeMtProxyTlsProfile(currentProxyTlsProfile), size);
                         uint32_t outLength;
                         HMAC(EVP_sha256(), currentSecret.data(), currentSecret.size(), tempBuffer->bytes, size, tempBuffer->bytes + 64 * 1024, &outLength);
 
@@ -1388,12 +1690,13 @@ void ConnectionSocket::dropConnection() {
     closeSocket(0, 0);
 }
 
-void ConnectionSocket::setOverrideProxy(std::string address, uint16_t port, std::string username, std::string password, std::string secret) {
+void ConnectionSocket::setOverrideProxy(std::string address, uint16_t port, std::string username, std::string password, std::string secret, int32_t mtProxyTlsProfile) {
     overrideProxyAddress = address;
     overrideProxyPort = port;
     overrideProxyUser = username;
     overrideProxyPassword = password;
     overrideProxySecret = secret;
+    overrideProxyTlsProfile = normalizeMtProxyTlsProfile(mtProxyTlsProfile);
 }
 
 void ConnectionSocket::onHostNameResolved(std::string host, std::string ip, bool ipv6) {

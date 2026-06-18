@@ -33,7 +33,7 @@ public:
     time_t getTimeout();
     bool isDisconnected();
     void dropConnection();
-    void setOverrideProxy(std::string address, uint16_t port, std::string username, std::string password, std::string secret);
+    void setOverrideProxy(std::string address, uint16_t port, std::string username, std::string password, std::string secret, int32_t mtProxyTlsProfile);
     void onHostNameResolved(std::string host, std::string ip, bool ipv6);
 
 protected:
@@ -52,6 +52,7 @@ protected:
     std::string overrideProxyAddress = "";
     std::string overrideProxySecret = "";
     uint16_t overrideProxyPort = 1080;
+    int32_t overrideProxyTlsProfile = 0;
 
 private:
     ByteStream *outgoingByteStream = nullptr;
@@ -73,6 +74,7 @@ private:
 
     std::string currentSecret;
     std::string currentSecretDomain;
+    int32_t currentProxyTlsProfile = 0;
 
     bool tlsHashMismatch = false;
     bool tlsBufferSized = true;

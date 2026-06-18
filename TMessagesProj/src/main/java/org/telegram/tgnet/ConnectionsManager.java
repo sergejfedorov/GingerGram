@@ -111,6 +111,18 @@ public class ConnectionsManager extends BaseController {
     public final static byte USE_IPV6_ONLY = 1;
     public final static byte USE_IPV4_IPV6_RANDOM = 2;
 
+    public final static int MT_PROXY_TLS_PROFILE_AUTO = 0;
+    public final static int MT_PROXY_TLS_PROFILE_FIREFOX = 1;
+    public final static int MT_PROXY_TLS_PROFILE_ANDROID_CHROME = 2;
+    public final static int MT_PROXY_TLS_PROFILE_YANDEX = 3;
+    public final static int MT_PROXY_TLS_PROFILE_FIREFOX_ANDROID = 4;
+    public final static int MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP = 5;
+
+    private static final int MT_PROXY_TLS_PROFILE_RANDOM_COUNT = 5;
+    private static final String MT_PROXY_TLS_PROFILE_PREFS = "mtproxy_tls_profile";
+    private static final String MT_PROXY_TLS_PROFILE_SALT = "profile_salt_v1";
+    private static final String MT_PROXY_TLS_PROFILE_OVERRIDE = "profile_override";
+
     private static long lastDnsRequestTime;
 
     public final static int DEFAULT_DATACENTER_ID = Integer.MAX_VALUE;
@@ -616,7 +628,8 @@ public class ConnectionsManager extends BaseController {
         int proxyPort = preferences.getInt("proxy_port", 1080);
 
         if (preferences.getBoolean("proxy_enabled", false) && !TextUtils.isEmpty(proxyAddress)) {
-            native_setProxySettings(currentAccount, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret);
+            int mtProxyTlsProfile = resolveMtProxyTlsProfile(proxyAddress, proxyPort, proxySecret);
+            native_setProxySettings(currentAccount, proxyAddress, proxyPort, proxyUsername, proxyPassword, proxySecret, mtProxyTlsProfile);
         }
         String installer = "";
         try {
@@ -725,7 +738,8 @@ public class ConnectionsManager extends BaseController {
         if (secret == null) {
             secret = "";
         }
-        return native_checkProxy(currentAccount, address, port, username, password, secret, requestTimeDelegate);
+        int mtProxyTlsProfile = resolveMtProxyTlsProfile(address, port, secret);
+        return native_checkProxy(currentAccount, address, port, username, password, secret, mtProxyTlsProfile, requestTimeDelegate);
     }
 
     public void setAppPaused(final boolean value, final boolean byScreenState) {
@@ -942,17 +956,77 @@ public class ConnectionsManager extends BaseController {
             secret = "";
         }
 
+        int mtProxyTlsProfile = enabled && !TextUtils.isEmpty(address) ? resolveMtProxyTlsProfile(address, port, secret) : MT_PROXY_TLS_PROFILE_AUTO;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
             if (enabled && !TextUtils.isEmpty(address)) {
-                native_setProxySettings(a, address, port, username, password, secret);
+                native_setProxySettings(a, address, port, username, password, secret, mtProxyTlsProfile);
             } else {
-                native_setProxySettings(a, "", 1080, "", "", "");
+                native_setProxySettings(a, "", 1080, "", "", "", mtProxyTlsProfile);
             }
             AccountInstance accountInstance = AccountInstance.getInstance(a);
             if (accountInstance.getUserConfig().isClientActivated()) {
                 accountInstance.getMessagesController().checkPromoInfo(true);
             }
         }
+    }
+
+    private static int resolveMtProxyTlsProfile(String address, int port, String secret) {
+        SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences(MT_PROXY_TLS_PROFILE_PREFS, Context.MODE_PRIVATE);
+        int override = preferences.getInt(MT_PROXY_TLS_PROFILE_OVERRIDE, MT_PROXY_TLS_PROFILE_AUTO);
+        if (override >= MT_PROXY_TLS_PROFILE_FIREFOX && override <= MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP) {
+            return override;
+        }
+
+        long salt = preferences.getLong(MT_PROXY_TLS_PROFILE_SALT, 0);
+        if (salt == 0) {
+            salt = Utilities.random.nextLong();
+            if (salt == 0) {
+                salt = 1;
+            }
+            preferences.edit().putLong(MT_PROXY_TLS_PROFILE_SALT, salt).apply();
+        }
+
+        long hash = 0xcbf29ce484222325L ^ salt;
+        hash = stableMtProxyTlsHash(hash, address);
+        hash = stableMtProxyTlsHash(hash, port);
+        hash = stableMtProxyTlsHash(hash, secret);
+
+        int bucket = Math.floorMod(hash, MT_PROXY_TLS_PROFILE_RANDOM_COUNT);
+        if (bucket == 0) {
+            return MT_PROXY_TLS_PROFILE_FIREFOX;
+        } else if (bucket == 1) {
+            return MT_PROXY_TLS_PROFILE_ANDROID_CHROME;
+        } else if (bucket == 2) {
+            return MT_PROXY_TLS_PROFILE_FIREFOX_ANDROID;
+        } else if (bucket == 3) {
+            return MT_PROXY_TLS_PROFILE_ANDROID_OKHTTP;
+        }
+        return MT_PROXY_TLS_PROFILE_YANDEX;
+    }
+
+    private static long stableMtProxyTlsHash(long hash, int value) {
+        for (int i = 0; i < 4; i++) {
+            hash ^= (value >> (i * 8)) & 0xff;
+            hash *= 0x100000001b3L;
+        }
+        return hash;
+    }
+
+    private static long stableMtProxyTlsHash(long hash, String value) {
+        if (value == null) {
+            return stableMtProxyTlsHash(hash, 0);
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c >= 'A' && c <= 'Z') {
+                c = (char) (c + 32);
+            }
+            hash ^= c & 0xff;
+            hash *= 0x100000001b3L;
+            hash ^= (c >> 8) & 0xff;
+            hash *= 0x100000001b3L;
+        }
+        return hash;
     }
 
     public static native void native_switchBackend(int currentAccount, boolean restart);
@@ -978,14 +1052,14 @@ public class ConnectionsManager extends BaseController {
     public static native int native_getConnectionState(int currentAccount);
     public static native void native_setUserId(int currentAccount, long id);
     public static native void native_init(int currentAccount, int version, int layer, int apiId, String deviceModel, String systemVersion, String appVersion, String langCode, String systemLangCode, String configPath, String logPath, String regId, String cFingerprint, String installer, String packageId, int timezoneOffset, long userId, boolean userPremium, boolean enablePushConnection, boolean hasNetwork, int networkType, int performanceClass);
-    public static native void native_setProxySettings(int currentAccount, String address, int port, String username, String password, String secret);
+    public static native void native_setProxySettings(int currentAccount, String address, int port, String username, String password, String secret, int mtProxyTlsProfile);
     public static native void native_setLangCode(int currentAccount, String langCode);
     public static native void native_setRegId(int currentAccount, String regId);
     public static native void native_setSystemLangCode(int currentAccount, String langCode);
     public static native void native_setJava(boolean useJavaByteBuffers);
     public static native void native_setPushConnectionEnabled(int currentAccount, boolean value);
     public static native void native_applyDnsConfig(int currentAccount, long address, String phone, int date);
-    public static native long native_checkProxy(int currentAccount, String address, int port, String username, String password, String secret, RequestTimeDelegate requestTimeDelegate);
+    public static native long native_checkProxy(int currentAccount, String address, int port, String username, String password, String secret, int mtProxyTlsProfile, RequestTimeDelegate requestTimeDelegate);
     public static native void native_onHostNameResolved(String host, long address, String ip);
     public static native void native_discardConnection(int currentAccount, int datacenterId, int connectionType);
     public static native void native_failNotRunningRequest(int currentAccount, int token);
