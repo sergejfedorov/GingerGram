@@ -32,6 +32,8 @@ PROXY_ROTATION_RE = re.compile(r"proxy_rotation ([a-z_]+)")
 ENDPOINT_RE = re.compile(r"endpoint=([^ ]+)")
 SCHEDULER_LISTENERS_RE = re.compile(r"listeners=([0-9]+)")
 SCHEDULER_FORCE_RE = re.compile(r"force=(true|false)")
+SCHEDULER_RESULT_RE = re.compile(r"proxy_check_scheduler finish result=([a-z]+)")
+SCHEDULER_APPLIED_RE = re.compile(r"time=([-0-9]+) applied_time=([-0-9]+) raw_time=([-0-9]+)")
 
 
 @dataclass
@@ -98,6 +100,8 @@ class Attempt:
 
     def verdict(self) -> str:
         has = self.events.__contains__
+        if has("on_connected") and not has("socket_connected"):
+            return "connected_without_socket_connected_marker"
         if not has("socket_connected"):
             return "tcp_not_connected_or_not_reached"
         if not has("client_hello_sent"):
@@ -172,6 +176,9 @@ def print_proxy_check_summary(lines: list[str]) -> None:
     scheduler_coalescing: Counter[str] = Counter()
     scheduler_listener_peaks: dict[str, int] = {}
     scheduler_force: Counter[str] = Counter()
+    scheduler_results: Counter[str] = Counter()
+    scheduler_preserved_connected: Counter[str] = Counter()
+    scheduler_applied_split: Counter[str] = Counter()
     rotation_events: Counter[str] = Counter()
 
     for text in lines:
@@ -200,6 +207,15 @@ def print_proxy_check_summary(lines: list[str]) -> None:
             force = SCHEDULER_FORCE_RE.search(text)
             if force:
                 scheduler_force[force.group(1)] += 1
+            result = SCHEDULER_RESULT_RE.search(text)
+            if result:
+                scheduler_results[result.group(1)] += 1
+                applied = SCHEDULER_APPLIED_RE.search(text)
+                if applied and (applied.group(1) != applied.group(2) or applied.group(1) != applied.group(3)):
+                    scheduler_applied_split[f"callback={applied.group(1)} applied={applied.group(2)} raw={applied.group(3)}"] += 1
+            if event == "finish_keep_connected":
+                endpoint = ENDPOINT_RE.search(text)
+                scheduler_preserved_connected[endpoint.group(1) if endpoint else "unknown"] += 1
             continue
 
         native = PROXY_CHECK_RE.search(text)
@@ -243,6 +259,18 @@ def print_proxy_check_summary(lines: list[str]) -> None:
         print("  Scheduler force flags:")
         for value, count in scheduler_force.most_common():
             print(f"    {value}: {count}")
+    if scheduler_results:
+        print("  Scheduler finish results:")
+        for result, count in scheduler_results.most_common():
+            print(f"    {result}: {count}")
+    if scheduler_preserved_connected:
+        print("  Scheduler preserved connected state:")
+        for endpoint, count in scheduler_preserved_connected.most_common(10):
+            print(f"    {endpoint}: {count}")
+    if scheduler_applied_split:
+        print("  Scheduler applied/callback split:")
+        for item, count in scheduler_applied_split.most_common(10):
+            print(f"    {item}: {count}")
     if native_events:
         print("  Native events:")
         for event, count in native_events.most_common():
@@ -310,6 +338,7 @@ def print_report(attempts: list[Attempt], global_lines: list[str]) -> None:
     print()
     print("How to read the verdicts:")
     print("- tcp_not_connected_or_not_reached: TCP/connect/IP/proxy availability layer.")
+    print("- connected_without_socket_connected_marker: Telegram reached on_connected, but this log slice has no socket_connected marker; do not treat it as a TCP failure.")
     print("- no_valid_server_hello_after_client_hello: compare VPN vs non-VPN; with VPN failure points to server/client compatibility, without VPN it can be DPI blackhole.")
     print("- server_hello_hmac_mismatch_or_incompatible_profile: likely ClientHello/profile/server response mismatch, not plain packet loss.")
     print("- post_handshake_no_server_appdata: HMAC passed; inspect TLS app-data write/read path and first MTProto packets.")

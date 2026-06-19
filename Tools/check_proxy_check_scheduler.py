@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -7,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCHEDULER = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/ProxyCheckScheduler.java"
 PROXY_LIST = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/ProxyListActivity.java"
 ROTATION = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/ProxyRotationController.java"
+JAVA_MANAGER = ROOT / "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
 
 checks = [
     (SCHEDULER, "PROXY_CHECK_SPACING_MS", "scheduler must space background proxy checks"),
@@ -25,7 +27,8 @@ checks = [
     (SCHEDULER, "request.force = request.force || force", "attached manual listeners must upgrade pending requests to forced checks"),
     (SCHEDULER, "ArrayList<Listener>", "scheduler must support multiple owners/listeners for one endpoint check"),
     (SCHEDULER, "applyMeasuredResult", "scheduler must copy measured checked results to attached ProxyInfo instances"),
-    (SCHEDULER, "effectiveTimeForResult", "scheduler must normalize check results before applying them to UI state"),
+    (SCHEDULER, "appliedTimeForResult", "scheduler must normalize check results before applying them to UI state"),
+    (SCHEDULER, "callbackTimeForResult", "scheduler must keep measured callback result separate from preserved connected state"),
     (SCHEDULER, "isConnectedCurrentProxy", "scheduler must not let background check failures overwrite the currently connected proxy"),
     (SCHEDULER, "nativePingId", "scheduler must keep native cancellation state outside mutable UI ProxyInfo objects"),
     (SCHEDULER, "notifyRequestFinishedIfDrained", "scheduler must notify every listener when a coalesced request is skipped or drained"),
@@ -42,12 +45,13 @@ checks = [
     (SCHEDULER, "enqueue endpoint=", "scheduler must log enqueue decisions for UI diagnostics"),
     (SCHEDULER, "start endpoint=", "scheduler must log check start for UI diagnostics"),
     (SCHEDULER, "finish result=", "scheduler must log check finish for UI diagnostics"),
+    (SCHEDULER, "finish_ignored", "scheduler must log late native callbacks that no longer match the active Java request"),
     (SCHEDULER, "cancel_owner", "scheduler must log owner cancellation for UI diagnostics"),
     (SCHEDULER, "proxyInfo.proxyCheckPingId == 0", "scheduler must fail fast if native checkProxy refuses to start"),
     (SCHEDULER, "force", "scheduler must support forced manual checks without abusing stale-cache state"),
     (PROXY_LIST, "ProxyCheckScheduler.enqueueStale", "proxy list must use the shared scheduler"),
     (PROXY_LIST, "ProxyCheckScheduler.isFresh", "proxy list must use the shared freshness policy"),
-    (PROXY_LIST, "ProxyCheckScheduler.markConnected(currentInfo)", "proxy list must mark the connected current proxy as fresh instead of forcing rechecks"),
+    (PROXY_LIST, "markConnectedCurrentProxyIfNeeded", "proxy list must mark connected-state observations outside cell rendering"),
     (PROXY_LIST, "ProxyCheckScheduler.cancelOwner(this)", "proxy list must cancel queued checks on destroy"),
     (ROTATION, "ProxyCheckScheduler.enqueueStale", "proxy rotation must use the shared scheduler"),
     (ROTATION, "ProxyCheckScheduler.isFresh", "proxy rotation must not switch to stale availability results"),
@@ -85,17 +89,56 @@ if "if (proxyInfo == null || owner == null)" not in scheduler_text or "if (proxy
     print("Proxy check scheduler guard failed:")
     print(f" - {SCHEDULER.relative_to(ROOT)}: enqueueNow/enqueueStale must reject ownerless checks at the public API boundary")
     sys.exit(1)
-if "long effectiveTime = effectiveTimeForResult(request, time);" not in scheduler_text:
+if "long appliedTime = appliedTimeForResult(request, time);" not in scheduler_text or "long callbackTime = callbackTimeForResult(request, time);" not in scheduler_text:
     print("Proxy check scheduler guard failed:")
-    print(f" - {SCHEDULER.relative_to(ROOT)}: finishRequest must normalize results before mutating proxy availability")
+    print(f" - {SCHEDULER.relative_to(ROOT)}: finishRequest must separate applied state from callback result")
+    sys.exit(1)
+if "finish result=\" + (effectiveTime == -1" in scheduler_text or "onProxyChecked(listener.proxyInfo, effectiveTime)" in scheduler_text:
+    print("Proxy check scheduler guard failed:")
+    print(f" - {SCHEDULER.relative_to(ROOT)}: callback result must not reuse preserved connected-state time")
+    sys.exit(1)
+if "applyMeasuredResult(request.proxyInfo, appliedTime);" in scheduler_text:
+    print("Proxy check scheduler guard failed:")
+    print(f" - {SCHEDULER.relative_to(ROOT)}: finishRequest must publish measured results only through listener fan-out")
     sys.exit(1)
 if "cancelProxyCheck(proxyInfo.proxyCheckPingId)" in scheduler_text:
     print("Proxy check scheduler guard failed:")
     print(f" - {SCHEDULER.relative_to(ROOT)}: active native cancellation must use Request.nativePingId, not mutable ProxyInfo.proxyCheckPingId")
     sys.exit(1)
+direct_check_result = subprocess.run(
+    ["rg", "-l", r"\.checkProxy\(|native_checkProxy", str(ROOT / "TMessagesProj/src/main/java/org/telegram")],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    check=False,
+)
+if direct_check_result.returncode not in (0, 1):
+    print("Proxy check scheduler guard failed:")
+    print(f" - rg failed while checking direct proxy calls: {direct_check_result.stderr.strip()}")
+    sys.exit(1)
+allowed_direct_check_callers = {SCHEDULER.resolve(), JAVA_MANAGER.resolve()}
+direct_check_callers = []
+for item in direct_check_result.stdout.splitlines():
+    path = Path(item).resolve()
+    if path not in allowed_direct_check_callers:
+        direct_check_callers.append(str(path.relative_to(ROOT)))
+if direct_check_callers:
+    print("Proxy check scheduler guard failed:")
+    print(" - direct proxy checks must go through ProxyCheckScheduler:")
+    for path in direct_check_callers[:20]:
+        print(f"   {path}")
+    sys.exit(1)
 if "currentInfo.availableCheckTime = 0" in PROXY_LIST.read_text(encoding="utf-8"):
     print("Proxy check scheduler guard failed:")
     print(f" - {PROXY_LIST.relative_to(ROOT)}: connected current proxy must not be marked stale by the UI")
+    sys.exit(1)
+proxy_list_text = PROXY_LIST.read_text(encoding="utf-8")
+update_status_start = proxy_list_text.find("public void updateStatus()")
+update_status_end = proxy_list_text.find("public void setSelectionEnabled", update_status_start)
+update_status_body = proxy_list_text[update_status_start:update_status_end]
+if "ProxyCheckScheduler.markConnected" in update_status_body:
+    print("Proxy check scheduler guard failed:")
+    print(f" - {PROXY_LIST.relative_to(ROOT)}: proxy list cell rendering must not mutate scheduler freshness state")
     sys.exit(1)
 if "notifyOwnerFinishedIfDrained(request)" in scheduler_text:
     print("Proxy check scheduler guard failed:")

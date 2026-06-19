@@ -219,33 +219,45 @@ public class ProxyCheckScheduler {
 
     private static void finishRequest(Request request, long time) {
         if (activeRequest != request) {
+            log("finish_ignored endpoint=" + endpoint(request.proxyInfo) + " time=" + time + " active=" + (activeRequest == null ? "null" : endpoint(activeRequest.proxyInfo)));
             return;
         }
         activeRequest = null;
-        long effectiveTime = effectiveTimeForResult(request, time);
-        applyMeasuredResult(request.proxyInfo, effectiveTime);
-        log("finish result=" + (effectiveTime == -1 ? "fail" : "ok") + " time=" + effectiveTime + " raw_time=" + time + " endpoint=" + endpoint(request.proxyInfo) + " queued=" + queue.size() + " cancelled=" + request.cancelled + " listeners=" + request.activeListenerCount());
+        long appliedTime = appliedTimeForResult(request, time);
+        long callbackTime = callbackTimeForResult(request, time);
+        log("finish result=" + (callbackTime == -1 ? "fail" : "ok") + " time=" + callbackTime + " applied_time=" + appliedTime + " raw_time=" + time + " endpoint=" + endpoint(request.proxyInfo) + " queued=" + queue.size() + " cancelled=" + request.cancelled + " listeners=" + request.activeListenerCount());
         for (int i = 0, count = request.listeners.size(); i < count; i++) {
             Listener listener = request.listeners.get(i);
             if (listener.cancelled) {
                 continue;
             }
-            applyMeasuredResult(listener.proxyInfo, effectiveTime);
+            applyMeasuredResult(listener.proxyInfo, appliedTime);
             NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxyCheckDone, listener.proxyInfo);
             if (listener.callback != null) {
-                listener.callback.onProxyChecked(listener.proxyInfo, effectiveTime);
+                listener.callback.onProxyChecked(listener.proxyInfo, callbackTime);
             }
         }
         notifyRequestFinishedIfDrained(request);
         AndroidUtilities.runOnUIThread(startNextRunnable, PROXY_CHECK_SPACING_MS);
     }
 
-    private static long effectiveTimeForResult(Request request, long time) {
-        if (time == -1 && isConnectedCurrentProxy(request.currentAccount, request.proxyInfo)) {
+    private static long appliedTimeForResult(Request request, long time) {
+        if (shouldPreserveConnectedState(request, time)) {
             log("finish_keep_connected endpoint=" + endpoint(request.proxyInfo));
             return 0;
         }
         return time;
+    }
+
+    private static long callbackTimeForResult(Request request, long time) {
+        if (shouldPreserveConnectedState(request, time)) {
+            return -1;
+        }
+        return time;
+    }
+
+    private static boolean shouldPreserveConnectedState(Request request, long time) {
+        return time == -1 && isConnectedCurrentProxy(request.currentAccount, request.proxyInfo);
     }
 
     private static boolean isConnectedCurrentProxy(int currentAccount, SharedConfig.ProxyInfo proxyInfo) {

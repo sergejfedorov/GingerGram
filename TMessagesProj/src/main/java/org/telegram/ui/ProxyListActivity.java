@@ -184,7 +184,6 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             if (SharedConfig.currentProxy == currentInfo && useProxySettings) {
                 if (currentConnectionState == ConnectionsManager.ConnectionStateConnected || currentConnectionState == ConnectionsManager.ConnectionStateUpdating) {
                     colorKey = Theme.key_windowBackgroundWhiteBlueText6;
-                    ProxyCheckScheduler.markConnected(currentInfo);
                     if (currentInfo.ping != 0) {
                         valueTextView.setText(getString(R.string.Connected) + ", " + LocaleController.formatString("Ping", R.string.Ping, currentInfo.ping));
                     } else {
@@ -347,6 +346,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         final SharedPreferences preferences = MessagesController.getGlobalMainSettings();
         useProxySettings = preferences.getBoolean("proxy_enabled", false) && !SharedConfig.proxyList.isEmpty();
         useProxyForCalls = preferences.getBoolean("proxy_enabled_calls", false);
+        markConnectedCurrentProxyIfNeeded();
 
         updateRows(true);
 
@@ -735,6 +735,15 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         });
     }
 
+    private void markConnectedCurrentProxyIfNeeded() {
+        if (!useProxySettings || SharedConfig.currentProxy == null) {
+            return;
+        }
+        if (currentConnectionState == ConnectionsManager.ConnectionStateConnected || currentConnectionState == ConnectionsManager.ConnectionStateUpdating) {
+            ProxyCheckScheduler.markConnected(SharedConfig.currentProxy);
+        }
+    }
+
     @Override
     protected void onDialogDismiss(Dialog dialog) {
         DownloadController.getInstance(currentAccount).checkAutodownloadSettings();
@@ -743,6 +752,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     @Override
     public void onResume() {
         super.onResume();
+        markConnectedCurrentProxyIfNeeded();
         if (listAdapter != null) {
             listAdapter.notifyDataSetChanged();
         }
@@ -767,6 +777,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
             int state = ConnectionsManager.getInstance(account).getConnectionState();
             if (currentConnectionState != state) {
                 currentConnectionState = state;
+                markConnectedCurrentProxyIfNeeded();
                 if (listView != null && SharedConfig.currentProxy != null) {
                     int idx = proxyList.indexOf(SharedConfig.currentProxy);
                     if (idx >= 0) {

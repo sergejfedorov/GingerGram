@@ -11,6 +11,7 @@ COLLECT = ROOT / "Tools/collect_mtproxy_logs.ps1"
 ANALYZE = ROOT / "Tools/analyze_mtproxy_markers.py"
 WRAPPER = ROOT / "TMessagesProj/jni/TgNetWrapper.cpp"
 JAVA_MANAGER = ROOT / "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
+README = ROOT / "README.md"
 
 
 def require(condition, message):
@@ -27,6 +28,7 @@ def main():
     analyze = ANALYZE.read_text(encoding="utf-8")
     wrapper = WRAPPER.read_text(encoding="utf-8")
     java_manager = JAVA_MANAGER.read_text(encoding="utf-8")
+    readme = README.read_text(encoding="utf-8")
 
     require(
         "finishProxyCheck(" in hdr and "scheduleNextProxyCheck(" in hdr,
@@ -246,9 +248,25 @@ def main():
     require(
         "SCHEDULER_LISTENERS_RE" in analyze
         and "SCHEDULER_FORCE_RE" in analyze
+        and "SCHEDULER_RESULT_RE" in analyze
+        and "SCHEDULER_APPLIED_RE" in analyze
         and "Scheduler coalescing:" in analyze
         and "Scheduler listener peaks:" in analyze,
-        "MTProxy analyzer must summarize Java scheduler coalescing and listener fan-in",
+        "MTProxy analyzer must summarize Java scheduler coalescing, listener fan-in, and applied/callback result split",
+    )
+    require(
+        "Scheduler finish results:" in analyze
+        and "Scheduler preserved connected state:" in analyze
+        and "Scheduler applied/callback split:" in analyze,
+        "MTProxy analyzer must make preserved connected-state checks visible in the proxy-check summary",
+    )
+    require(
+        "### Архитектура проверки прокси" in readme
+        and "ProxyCheckScheduler" in readme
+        and "finishProxyCheck" in readme
+        and "Tools/analyze_mtproxy_markers.py" in readme
+        and "connected_without_socket_connected_marker" in readme,
+        "README must document the Java/native proxy-check lifecycle and analyzer verdicts",
     )
 
     print("proxy check native lifecycle guard OK")
