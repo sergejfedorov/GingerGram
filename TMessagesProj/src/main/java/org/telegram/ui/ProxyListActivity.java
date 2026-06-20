@@ -43,6 +43,7 @@ import org.telegram.messenger.DownloadController;
 import org.telegram.messenger.LocaleController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
+import org.telegram.messenger.ProxyCheckDiagnostics;
 import org.telegram.messenger.ProxyCheckScheduler;
 import org.telegram.messenger.ProxyRotationController;
 import org.telegram.messenger.R;
@@ -180,40 +181,9 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         }
 
         public void updateStatus() {
-            int colorKey;
-            if (SharedConfig.currentProxy == currentInfo && useProxySettings) {
-                if (currentConnectionState == ConnectionsManager.ConnectionStateConnected || currentConnectionState == ConnectionsManager.ConnectionStateUpdating) {
-                    colorKey = Theme.key_windowBackgroundWhiteBlueText6;
-                    if (currentInfo.ping != 0) {
-                        valueTextView.setText(getString(R.string.Connected) + ", " + LocaleController.formatString("Ping", R.string.Ping, currentInfo.ping));
-                    } else {
-                        valueTextView.setText(getString(R.string.Connected));
-                    }
-                } else {
-                    colorKey = Theme.key_windowBackgroundWhiteGrayText2;
-                    valueTextView.setText(getString(R.string.ProxyStatusConnectingSlow));
-                }
-            } else {
-                if (currentInfo.checking) {
-                    valueTextView.setText(getString(R.string.ProxyStatusCheckingConnection));
-                    colorKey = Theme.key_windowBackgroundWhiteGrayText2;
-                } else if (currentInfo.available && ProxyCheckScheduler.isFresh(currentInfo)) {
-                    if (currentInfo.ping != 0) {
-                        valueTextView.setText(getString(R.string.Available) + ", " + LocaleController.formatString("Ping", R.string.Ping, currentInfo.ping));
-                    } else {
-                        valueTextView.setText(getString(R.string.Available));
-                    }
-                    colorKey = Theme.key_windowBackgroundWhiteGreenText;
-                } else {
-                    if (!TextUtils.isEmpty(currentInfo.secret)) {
-                        valueTextView.setText(getString(R.string.ProxyStatusNotRespondingNow));
-                        colorKey = Theme.key_windowBackgroundWhiteGrayText2;
-                    } else {
-                        valueTextView.setText(getString(R.string.Unavailable));
-                        colorKey = Theme.key_text_RedRegular;
-                    }
-                }
-            }
+            boolean currentProxyEnabled = SharedConfig.currentProxy == currentInfo && useProxySettings;
+            int colorKey = ProxyCheckDiagnostics.statusColorKey(currentInfo, currentProxyEnabled, currentConnectionState);
+            valueTextView.setText(ProxyCheckDiagnostics.statusText(currentInfo, currentProxyEnabled, currentConnectionState));
             color = Theme.getColor(colorKey);
             valueTextView.setTag(colorKey);
             valueTextView.setTextColor(color);
@@ -726,7 +696,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     private void checkProxyList() {
         ProxyCheckScheduler.enqueueStale(currentAccount, proxyList, this, new ProxyCheckScheduler.Callback() {
             @Override
-            public void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time) {
+            public void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time, String diagnostic) {
             }
 
             @Override

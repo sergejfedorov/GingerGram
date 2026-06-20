@@ -24,7 +24,7 @@ public class ProxyCheckScheduler {
     private static Request activeRequest;
 
     public interface Callback {
-        void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time);
+        void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time, String diagnostic);
         void onProxyCheckQueueFinished();
     }
 
@@ -143,6 +143,8 @@ public class ProxyCheckScheduler {
         boolean changed = proxyInfo.checking || !proxyInfo.available || !isFresh(proxyInfo);
         proxyInfo.available = true;
         proxyInfo.availableCheckTime = SystemClock.elapsedRealtime();
+        proxyInfo.lastCheckDiagnostic = ProxyCheckDiagnostics.OK;
+        proxyInfo.lastCheckDiagnosticTime = proxyInfo.availableCheckTime;
         clearTransientState(proxyInfo);
         if (changed) {
             log("mark_connected endpoint=" + endpoint(proxyInfo));
@@ -208,37 +210,46 @@ public class ProxyCheckScheduler {
         SharedConfig.ProxyInfo proxyInfo = request.proxyInfo;
         request.setChecking(true);
         log("start endpoint=" + endpoint(proxyInfo) + " queued=" + queue.size());
-        proxyInfo.proxyCheckPingId = ConnectionsManager.getInstance(request.currentAccount).checkProxy(proxyInfo.address, proxyInfo.port, proxyInfo.username, proxyInfo.password, proxyInfo.secret, time -> AndroidUtilities.runOnUIThread(() -> finishRequest(request, time)));
+        proxyInfo.proxyCheckPingId = ConnectionsManager.getInstance(request.currentAccount).checkProxy(proxyInfo.address, proxyInfo.port, proxyInfo.username, proxyInfo.password, proxyInfo.secret, (time, diagnostic) -> AndroidUtilities.runOnUIThread(() -> finishRequest(request, time, diagnostic)));
         request.nativePingId = proxyInfo.proxyCheckPingId;
         request.setProxyCheckPingId(proxyInfo.proxyCheckPingId);
         if (proxyInfo.proxyCheckPingId == 0) {
             log("start_failed endpoint=" + endpoint(proxyInfo) + " reason=native_refused");
-            finishRequest(request, -1);
+            finishRequest(request, -1, ProxyCheckDiagnostics.START_FAILED);
         }
     }
 
-    private static void finishRequest(Request request, long time) {
+    private static void finishRequest(Request request, long time, String diagnostic) {
         if (activeRequest != request) {
-            log("finish_ignored endpoint=" + endpoint(request.proxyInfo) + " time=" + time + " active=" + (activeRequest == null ? "null" : endpoint(activeRequest.proxyInfo)));
+            log("finish_ignored endpoint=" + endpoint(request.proxyInfo) + " time=" + time + " diagnostic=" + ProxyCheckDiagnostics.normalize(diagnostic) + " active=" + (activeRequest == null ? "null" : endpoint(activeRequest.proxyInfo)));
             return;
         }
         activeRequest = null;
+        String normalizedDiagnostic = normalizedDiagnosticForResult(time, diagnostic);
         long appliedTime = appliedTimeForResult(request, time);
         long callbackTime = callbackTimeForResult(request, time);
-        log("finish result=" + (callbackTime == -1 ? "fail" : "ok") + " time=" + callbackTime + " applied_time=" + appliedTime + " raw_time=" + time + " endpoint=" + endpoint(request.proxyInfo) + " queued=" + queue.size() + " cancelled=" + request.cancelled + " listeners=" + request.activeListenerCount());
+        String appliedDiagnostic = shouldPreserveConnectedState(request, time) ? ProxyCheckDiagnostics.OK : normalizedDiagnostic;
+        log("finish result=" + (callbackTime == -1 ? "fail" : "ok") + " phase=" + normalizedDiagnostic + " diagnostic=" + normalizedDiagnostic + " time=" + callbackTime + " applied_time=" + appliedTime + " raw_time=" + time + " endpoint=" + endpoint(request.proxyInfo) + " queued=" + queue.size() + " cancelled=" + request.cancelled + " listeners=" + request.activeListenerCount());
         for (int i = 0, count = request.listeners.size(); i < count; i++) {
             Listener listener = request.listeners.get(i);
             if (listener.cancelled) {
                 continue;
             }
-            applyMeasuredResult(listener.proxyInfo, appliedTime);
+            applyMeasuredResult(listener.proxyInfo, appliedTime, appliedDiagnostic);
             NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxyCheckDone, listener.proxyInfo);
             if (listener.callback != null) {
-                listener.callback.onProxyChecked(listener.proxyInfo, callbackTime);
+                listener.callback.onProxyChecked(listener.proxyInfo, callbackTime, normalizedDiagnostic);
             }
         }
         notifyRequestFinishedIfDrained(request);
         AndroidUtilities.runOnUIThread(startNextRunnable, PROXY_CHECK_SPACING_MS);
+    }
+
+    private static String normalizedDiagnosticForResult(long time, String diagnostic) {
+        if (time >= 0) {
+            return ProxyCheckDiagnostics.OK;
+        }
+        return ProxyCheckDiagnostics.normalize(diagnostic);
     }
 
     private static long appliedTimeForResult(Request request, long time) {
@@ -305,8 +316,10 @@ public class ProxyCheckScheduler {
         proxyInfo.proxyCheckPingId = 0;
     }
 
-    private static void applyMeasuredResult(SharedConfig.ProxyInfo proxyInfo, long time) {
+    private static void applyMeasuredResult(SharedConfig.ProxyInfo proxyInfo, long time, String diagnostic) {
         proxyInfo.availableCheckTime = SystemClock.elapsedRealtime();
+        proxyInfo.lastCheckDiagnostic = ProxyCheckDiagnostics.normalize(diagnostic);
+        proxyInfo.lastCheckDiagnosticTime = proxyInfo.availableCheckTime;
         clearTransientState(proxyInfo);
         if (time == -1) {
             proxyInfo.available = false;
@@ -447,10 +460,18 @@ public class ProxyCheckScheduler {
 
         void setChecking(boolean checking) {
             proxyInfo.checking = checking;
+            if (checking) {
+                proxyInfo.lastCheckDiagnostic = ProxyCheckDiagnostics.CHECKING;
+                proxyInfo.lastCheckDiagnosticTime = SystemClock.elapsedRealtime();
+            }
             for (int i = 0, count = listeners.size(); i < count; i++) {
                 Listener listener = listeners.get(i);
                 if (!listener.cancelled) {
                     listener.proxyInfo.checking = checking;
+                    if (checking) {
+                        listener.proxyInfo.lastCheckDiagnostic = ProxyCheckDiagnostics.CHECKING;
+                        listener.proxyInfo.lastCheckDiagnosticTime = proxyInfo.lastCheckDiagnosticTime;
+                    }
                 }
             }
         }

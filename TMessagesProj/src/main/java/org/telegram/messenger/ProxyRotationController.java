@@ -20,13 +20,15 @@ public class ProxyRotationController implements NotificationCenter.NotificationC
     private boolean isCurrentlyChecking;
     private final ProxyCheckScheduler.Callback rotationCheckCallback = new ProxyCheckScheduler.Callback() {
         @Override
-        public void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time) {
+        public void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time, String diagnostic) {
             if (!SharedConfig.isProxyEnabled() || !SharedConfig.proxyRotationEnabled || !isCurrentlyChecking) {
                 return;
             }
             if (time != -1 && proxyInfo.available) {
                 log("check_ok endpoint=" + endpoint(proxyInfo) + " ping=" + time);
                 switchToAvailable();
+            } else {
+                log("check_fail endpoint=" + endpoint(proxyInfo) + " phase=" + ProxyCheckDiagnostics.normalize(diagnostic));
             }
         }
 

@@ -187,6 +187,15 @@
     <string name="ProxyStatusConnectingSlow">Connecting, this can take a moment</string>
     <string name="ProxyStatusCheckingConnection">Checking connection...</string>
     <string name="ProxyStatusNotRespondingNow">Not responding right now</string>
+    <string name="ProxyStatusStartFailed">Check could not start</string>
+    <string name="ProxyStatusTcpNotConnected">TCP did not connect: server or port is unreachable</string>
+    <string name="ProxyStatusTcpConnectedNoPong">TCP connected, but MTProxy did not answer</string>
+    <string name="ProxyStatusClientHelloNoServerHello">ClientHello sent, ServerHello did not arrive</string>
+    <string name="ProxyStatusServerHelloHmacMismatch">ServerHello failed MTProxy HMAC check</string>
+    <string name="ProxyStatusPostHandshakeNoAppData">Handshake passed, no MTProto data arrived</string>
+    <string name="ProxyStatusDroppedAfterAppData">Connected, then dropped after first data</string>
+    <string name="ProxyStatusCancelled">Check cancelled</string>
+    <string name="ProxyStatusUnknownFail">Check failed: phase unknown</string>
     <string name="ConnectingToProxy">Connecting to proxy</string>
     <string name="ConnectingToProxyWithDots">Connecting to proxy...</string>
     <string name="MenuProxyTitle">Proxy</string>

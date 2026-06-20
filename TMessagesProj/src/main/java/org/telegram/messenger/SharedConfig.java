@@ -384,6 +384,8 @@ public class SharedConfig {
         public boolean checking;
         public boolean available;
         public long availableCheckTime;
+        public String lastCheckDiagnostic = ProxyCheckDiagnostics.UNKNOWN_FAIL;
+        public long lastCheckDiagnosticTime;
 
         public ProxyInfo(String address, int port, String username, String password, String secret) {
             this.address = address;

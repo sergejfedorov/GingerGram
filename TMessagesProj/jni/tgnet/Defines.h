@@ -13,6 +13,7 @@
 #include <list>
 #include <limits.h>
 #include <sstream>
+#include <string>
 #include <inttypes.h>
 #include "ByteArray.h"
 
@@ -53,7 +54,7 @@ typedef std::function<void()> onWriteToSocketFunc;
 typedef std::function<void()> onRequestClearFunc;
 typedef std::function<void()> onRequestCancelDoneFunc;
 typedef std::function<void(int64_t messageId)> fillParamsFunc;
-typedef std::function<void(int64_t requestTime)> onRequestTimeFunc;
+typedef std::function<void(int64_t requestTime, const std::string &diagnostic)> onRequestTimeFunc;
 typedef std::list<std::unique_ptr<Request>> requestsList;
 typedef requestsList::iterator requestsIter;
 

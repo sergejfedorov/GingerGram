@@ -266,5 +266,14 @@
     <string name="ProxyStatusConnectingSlow">Подключаемся, это может занять время</string>
     <string name="ProxyStatusCheckingConnection">Проверяем подключение...</string>
     <string name="ProxyStatusNotRespondingNow">Сейчас не отвечает</string>
+    <string name="ProxyStatusStartFailed">Проверка не запустилась</string>
+    <string name="ProxyStatusTcpNotConnected">TCP не открылся: сервер или порт недоступен</string>
+    <string name="ProxyStatusTcpConnectedNoPong">TCP открылся, но MTProxy не ответил</string>
+    <string name="ProxyStatusClientHelloNoServerHello">ClientHello отправлен, ServerHello не пришёл</string>
+    <string name="ProxyStatusServerHelloHmacMismatch">ServerHello не прошёл HMAC-проверку MTProxy</string>
+    <string name="ProxyStatusPostHandshakeNoAppData">Рукопожатие прошло, MTProto-данные не пришли</string>
+    <string name="ProxyStatusDroppedAfterAppData">Подключился и отвалился после первых данных</string>
+    <string name="ProxyStatusCancelled">Проверка отменена</string>
+    <string name="ProxyStatusUnknownFail">Проверка не прошла: фаза неизвестна</string>
     <string name="UseProxyTelegramInfoStealth">FakeTLS-секреты, которые начинаются с ee, используют браузерный TLS-профиль. Короткие dd/legacy-секреты работают как обычный MTProxy и не используют новую TLS-маскировку.</string>
 </resources>

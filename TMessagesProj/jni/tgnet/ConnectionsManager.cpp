@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <fcntl.h>
 #include <memory.h>
+#include <cstring>
 #include <openssl/rand.h>
 #include <zlib.h>
 #include <memory>
@@ -56,6 +57,17 @@ static const char *proxyCheckStateName(ProxyCheckState state) {
             return "finished";
     }
     return "unknown";
+}
+
+static const char *proxyCheckDiagnosticForClose(ProxyCheckInfo *proxyCheckInfo, Connection *connection) {
+    if (proxyCheckInfo == nullptr || proxyCheckInfo->connectionToken == 0 || connection == nullptr) {
+        return "tcp_not_connected";
+    }
+    const char *diagnostic = connection->getProxyCheckDiagnostic();
+    if (diagnostic == nullptr || diagnostic[0] == '\0' || strcmp(diagnostic, "tcp_not_connected") == 0) {
+        return "tcp_connected_no_pong";
+    }
+    return diagnostic;
 }
 
 ConnectionsManager::ConnectionsManager(int32_t instance) {
@@ -726,7 +738,7 @@ void ConnectionsManager::failProxyCheckStart(ProxyCheckInfo *proxyCheckInfo, con
         (int32_t) proxyCheckQueue.size());
     scheduleNextProxyCheck();
     if (callback) {
-        callback(-1);
+        callback(-1, "start_failed");
     }
 #ifdef ANDROID
     if (requestTimeRef != nullptr) {
@@ -778,7 +790,7 @@ bool ConnectionsManager::eraseProxyCheckRequest(int32_t requestToken, int64_t *r
     return false;
 }
 
-void ConnectionsManager::finishProxyCheck(std::vector<std::unique_ptr<ProxyCheckInfo>>::iterator iter, int64_t time, const char *reason, Connection *connection, bool notifyCallback) {
+void ConnectionsManager::finishProxyCheck(std::vector<std::unique_ptr<ProxyCheckInfo>>::iterator iter, int64_t time, const char *reason, const char *diagnostic, Connection *connection, bool notifyCallback) {
     ProxyCheckInfo *proxyCheckInfo = iter->get();
     if (proxyCheckInfo->finished) {
         if (LOGS_ENABLED) DEBUG_D("proxy_check_finish duplicate reason=%s ping_id=%" PRId64 " state=%s", reason, proxyCheckInfo->pingId, proxyCheckStateName(proxyCheckInfo->state));
@@ -806,9 +818,11 @@ void ConnectionsManager::finishProxyCheck(std::vector<std::unique_ptr<ProxyCheck
 #endif
 
     if (LOGS_ENABLED) DEBUG_D(
-        "proxy_check_finish result=%s reason=%s request_found=%d ping_id=%" PRId64 " address=%s:%u connection_num=%d state=%s queued=%d",
+        "proxy_check_finish result=%s reason=%s phase=%s diagnostic=%s request_found=%d ping_id=%" PRId64 " address=%s:%u connection_num=%d state=%s queued=%d",
         !notifyCallback ? "cancelled" : (time >= 0 ? "ok" : "fail"),
         reason,
+        diagnostic,
+        diagnostic,
         requestFound ? 1 : 0,
         proxyCheckInfo->pingId,
         proxyCheckInfo->address.c_str(),
@@ -822,7 +836,7 @@ void ConnectionsManager::finishProxyCheck(std::vector<std::unique_ptr<ProxyCheck
     }
     scheduleNextProxyCheck();
     if (notifyCallback && callback) {
-        callback(time);
+        callback(time, diagnostic == nullptr ? "unknown_fail" : diagnostic);
     }
 #ifdef ANDROID
     if (requestTimeRef != nullptr) {
@@ -915,7 +929,7 @@ void ConnectionsManager::onConnectionClosed(Connection *connection, int reason) 
                     proxyCheckInfo->requestToken,
                     proxyCheckInfo->connectionNum,
                     proxyCheckStateName(proxyCheckInfo->state));
-                finishProxyCheck(iter, -1, "connection_closed", connection, true);
+                finishProxyCheck(iter, -1, "connection_closed", proxyCheckDiagnosticForClose(proxyCheckInfo, connection), connection, true);
                 break;
             }
         }
@@ -1335,7 +1349,7 @@ void ConnectionsManager::processServerResponse(TLObject *message, int64_t messag
                     if (proxyCheckInfo->pingId == response->ping_id) {
                         int64_t ping = 0;
                         if (LOGS_ENABLED) DEBUG_D("got ping response for proxy check ping_id=%" PRId64 " connection_num=%d", proxyCheckInfo->pingId, proxyCheckInfo->connectionNum);
-                        finishProxyCheck(iter, ping, "pong", connection, true);
+                        finishProxyCheck(iter, ping, "pong", "ok", connection, true);
                         break;
                     }
                 }
@@ -4054,7 +4068,7 @@ void ConnectionsManager::cancelProxyCheck(int64_t pingId) {
                     connection = datacenter->getProxyConnection((uint8_t) proxyCheckInfo->connectionNum, false, false);
                 }
                 if (LOGS_ENABLED) DEBUG_D("proxy_check_cancel source=active ping_id=%" PRId64 " request_token=%d connection_num=%d reason=cancelled", proxyCheckInfo->pingId, proxyCheckInfo->requestToken, proxyCheckInfo->connectionNum);
-                finishProxyCheck(iter, -1, "cancelled", connection, false);
+                finishProxyCheck(iter, -1, "cancelled", "cancelled", connection, false);
                 return;
             }
         }

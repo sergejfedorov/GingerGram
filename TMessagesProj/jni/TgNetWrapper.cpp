@@ -309,9 +309,11 @@ jlong checkProxy(JNIEnv *env, jclass c, jint instanceNum, jstring address, jint 
         requestTimeFunc = env->NewGlobalRef(requestTimeFunc);
     }
 
-    jlong result = ConnectionsManager::getInstance(instanceNum).checkProxy(addressStr, (uint16_t) port, usernameStr, passwordStr, secretStr, (int32_t) mtProxyTlsProfile, [instanceNum, requestTimeFunc](int64_t time) {
+    jlong result = ConnectionsManager::getInstance(instanceNum).checkProxy(addressStr, (uint16_t) port, usernameStr, passwordStr, secretStr, (int32_t) mtProxyTlsProfile, [instanceNum, requestTimeFunc](int64_t time, const std::string &diagnostic) {
         if (requestTimeFunc != nullptr) {
-            jniEnv[instanceNum]->CallVoidMethod(requestTimeFunc, jclass_RequestTimeDelegate_run, time);
+            jstring diagnosticString = jniEnv[instanceNum]->NewStringUTF(diagnostic.c_str());
+            jniEnv[instanceNum]->CallVoidMethod(requestTimeFunc, jclass_RequestTimeDelegate_run, time, diagnosticString);
+            jniEnv[instanceNum]->DeleteLocalRef(diagnosticString);
         }
     }, requestTimeFunc);
 
@@ -607,7 +609,7 @@ extern "C" int registerNativeTgNetFunctions(JavaVM *vm, JNIEnv *env) {
     if (jclass_RequestTimeDelegate == 0) {
         return JNI_FALSE;
     }
-    jclass_RequestTimeDelegate_run = env->GetMethodID(jclass_RequestTimeDelegate, "run", "(J)V");
+    jclass_RequestTimeDelegate_run = env->GetMethodID(jclass_RequestTimeDelegate, "run", "(JLjava/lang/String;)V");
     if (jclass_RequestTimeDelegate_run == 0) {
         return JNI_FALSE;
     }

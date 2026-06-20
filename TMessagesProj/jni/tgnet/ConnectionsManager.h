@@ -141,7 +141,7 @@ private:
     void failProxyCheckStart(ProxyCheckInfo *proxyCheckInfo, const char *reason);
     bool isProxyCheckRequestActive(int32_t requestToken);
     bool eraseProxyCheckRequest(int32_t requestToken, int64_t *requestTime);
-    void finishProxyCheck(std::vector<std::unique_ptr<ProxyCheckInfo>>::iterator iter, int64_t time, const char *reason, Connection *connection, bool notifyCallback);
+    void finishProxyCheck(std::vector<std::unique_ptr<ProxyCheckInfo>>::iterator iter, int64_t time, const char *reason, const char *diagnostic, Connection *connection, bool notifyCallback);
     void scheduleNextProxyCheck();
 
     int32_t instanceNum = 0;

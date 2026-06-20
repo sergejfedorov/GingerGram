@@ -8,22 +8,28 @@ STRINGS = ROOT / "TMessagesProj/src/main/res/values/strings.xml"
 PROXY_LIST = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/ProxyListActivity.java"
 PROXY_SETTINGS = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/ProxySettingsActivity.java"
 ANDROID_UTILITIES = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/AndroidUtilities.java"
+DIAGNOSTICS = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/ProxyCheckDiagnostics.java"
 
 checks = [
     (STRINGS, 'name="ProxyStatusConnectingSlow"', "missing slow connecting proxy status string"),
     (STRINGS, 'name="ProxyStatusCheckingConnection"', "missing proxy checking status string"),
     (STRINGS, 'name="ProxyStatusNotRespondingNow"', "missing temporary proxy failure string"),
+    (STRINGS, 'name="ProxyStatusTcpNotConnected"', "missing TCP failure proxy status string"),
+    (STRINGS, 'name="ProxyStatusTcpConnectedNoPong"', "missing post-TCP/no-pong proxy status string"),
+    (STRINGS, 'name="ProxyStatusClientHelloNoServerHello"', "missing ClientHello/ServerHello proxy status string"),
     (STRINGS, 'name="UseProxyTelegramInfoStealth"', "missing MTProto stealth hint string"),
-    (PROXY_LIST, "R.string.ProxyStatusConnectingSlow", "proxy list does not use slow connecting text"),
-    (PROXY_LIST, "R.string.ProxyStatusCheckingConnection", "proxy list does not use checking text"),
-    (PROXY_LIST, "R.string.ProxyStatusNotRespondingNow", "proxy list does not use neutral MTProto failure text"),
-    (PROXY_LIST, "TextUtils.isEmpty(currentInfo.secret)", "proxy list does not distinguish MTProto from SOCKS failures"),
+    (DIAGNOSTICS, "ProxyStatusConnectingSlow", "diagnostic map does not use slow connecting text"),
+    (DIAGNOSTICS, "ProxyStatusCheckingConnection", "diagnostic map does not use checking text"),
+    (DIAGNOSTICS, "ProxyStatusTcpConnectedNoPong", "diagnostic map does not expose post-TCP/no-pong text"),
+    (DIAGNOSTICS, "TextUtils.isEmpty(proxyInfo.secret)", "diagnostic map does not distinguish MTProto from SOCKS failures"),
+    (PROXY_LIST, "ProxyCheckDiagnostics.statusText", "proxy list must render proxy status through the diagnostic map"),
+    (PROXY_LIST, "ProxyCheckDiagnostics.statusColorKey", "proxy list must choose status color through the diagnostic map"),
     (PROXY_SETTINGS, "R.string.UseProxyTelegramInfoStealth", "proxy settings does not show MTProto stealth hint"),
     (ANDROID_UTILITIES, "ProxyCheckScheduler.enqueueNow", "bottom-sheet proxy check must use the shared scheduler instead of direct native checkProxy"),
     (ANDROID_UTILITIES, "new SharedConfig.ProxyInfo", "bottom-sheet proxy check must pass through the shared ProxyInfo lifecycle"),
     (ANDROID_UTILITIES, "final Object proxyCheckOwner", "bottom-sheet proxy check must have an owner for lifecycle cancellation"),
     (ANDROID_UTILITIES, "ProxyCheckScheduler.cancelOwner(proxyCheckOwner)", "bottom-sheet proxy check must cancel queued or active work when the sheet is dismissed"),
-    (ANDROID_UTILITIES, "R.string.ProxyStatusNotRespondingNow", "bottom-sheet MTProxy failures must use the neutral temporary failure text"),
+    (ANDROID_UTILITIES, "ProxyCheckDiagnostics.diagnosticText", "bottom-sheet proxy failures must use the diagnostic map"),
     (ANDROID_UTILITIES, "if (!started)", "bottom-sheet proxy check must fail fast when the scheduler refuses to start"),
     (ANDROID_UTILITIES, "checking[0] = false;", "bottom-sheet proxy check must clear its checking flag on every terminal path"),
 ]

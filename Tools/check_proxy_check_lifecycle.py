@@ -127,7 +127,7 @@ def main():
         "closed proxy-check must log when the original running request is already gone",
     )
     require(
-        re.search(r"finishProxyCheck\(iter,\s*-1,\s*\"connection_closed\",\s*connection,\s*true\)", cpp),
+        re.search(r"finishProxyCheck\(iter,\s*-1,\s*\"connection_closed\",\s*proxyCheckDiagnosticForClose\(proxyCheckInfo,\s*connection\),\s*connection,\s*true\)", cpp),
         "ConnectionTypeProxy close must finish active check as -1 even if request lookup fails",
     )
     require(
@@ -139,11 +139,11 @@ def main():
         "active proxy-check erase must be centralized to avoid divergent lifecycle paths",
     )
     require(
-        'finishProxyCheck(iter, ping, "pong", connection, true)' in cpp,
+        'finishProxyCheck(iter, ping, "pong", "ok", connection, true)' in cpp,
         "TL_pong success path must be successful by matching ping_id, not by finding the backing Request",
     )
     require(
-        'finishProxyCheck(iter, -1, "cancelled", connection, false)' in cpp,
+        'finishProxyCheck(iter, -1, "cancelled", "cancelled", connection, false)' in cpp,
         "explicit cancellation must finish the native state without notifying Java as a failed network check",
     )
     require(
@@ -178,8 +178,8 @@ def main():
     require(
         "auto callback = proxyCheckInfo->onRequestTime;" in finish_body
         and "proxyActiveChecks.erase(iter);" in finish_body
-        and "callback(time);" in finish_body
-        and finish_body.index("proxyActiveChecks.erase(iter);") < finish_body.index("callback(time);"),
+        and "callback(time, diagnostic == nullptr ? \"unknown_fail\" : diagnostic);" in finish_body
+        and finish_body.index("proxyActiveChecks.erase(iter);") < finish_body.index("callback(time, diagnostic == nullptr ? \"unknown_fail\" : diagnostic);"),
         "finishProxyCheck must remove native active state before notifying Java",
     )
     require(
@@ -195,7 +195,7 @@ def main():
     require(
         "proxyCheckInfo->ptr1 = nullptr;" in finish_body
         and "DeleteGlobalRef(requestTimeRef);" in finish_body
-        and finish_body.index("callback(time);") < finish_body.index("DeleteGlobalRef(requestTimeRef);"),
+        and finish_body.index("callback(time, diagnostic == nullptr ? \"unknown_fail\" : diagnostic);") < finish_body.index("DeleteGlobalRef(requestTimeRef);"),
         "finishProxyCheck must keep the JNI callback ref alive until after Java notification",
     )
     require(

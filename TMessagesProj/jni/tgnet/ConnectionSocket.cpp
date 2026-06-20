@@ -1289,8 +1289,11 @@ void ConnectionSocket::markProxyHandshakeFreezeIfNeeded() {
         releaseProxyHandshakeAdmission(false, "freeze_timeout");
         if (MT_PROXY_HANDSHAKE_CLOSE_ON_FREEZE_ENABLED) {
             if (serverHelloHmacMismatchObserved) {
+                proxyCheckDiagnostic = "server_hello_hmac_mismatch";
                 tlsHashMismatch = true;
                 if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup server_hello_hmac_timeout bytes=%zu", this, bytesRead);
+            } else {
+                proxyCheckDiagnostic = "client_hello_sent_no_server_hello";
             }
             if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup server_hello_timeout_close elapsed=%ld", this, (long) elapsed);
             closeSocket(1, ETIMEDOUT);
@@ -1305,10 +1308,15 @@ void ConnectionSocket::markProxyServerHelloHmacTimeoutIfNeeded() {
     int64_t now = ConnectionsManager::getInstance(instanceNum).getCurrentTimeMonotonicMillis();
     int64_t elapsed = now - serverHelloHmacMismatchTime;
     if (elapsed >= MT_PROXY_SERVER_HELLO_HMAC_WAIT_MS) {
+        proxyCheckDiagnostic = "server_hello_hmac_mismatch";
         tlsHashMismatch = true;
         if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup server_hello_hmac_timeout bytes=%zu elapsed=%ld", this, bytesRead, (long) elapsed);
         closeSocket(1, ETIMEDOUT);
     }
+}
+
+const char *ConnectionSocket::getProxyCheckDiagnostic() {
+    return proxyCheckDiagnostic.empty() ? "unknown_fail" : proxyCheckDiagnostic.c_str();
 }
 
 void ConnectionSocket::clearPendingClientHello() {
@@ -1456,6 +1464,7 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
     currentSecretKind = "none";
     currentSecretIsFakeTls = false;
     currentProxyTlsProfile = normalizeMtProxyTlsProfile(MT_PROXY_TLS_PROFILE_ANDROID_CHROME);
+    proxyCheckDiagnostic = "tcp_not_connected";
     proxyHandshakeAdmissionKey = "";
     tlsState = 0;
     mtproxySocketConnectedLogged = false;
@@ -1820,6 +1829,7 @@ void ConnectionSocket::onEvent(uint32_t events) {
                             appFlightBytes += 5 + nextLen;
                         }
                         if (matchedBytes == 0) {
+                            proxyCheckDiagnostic = "server_hello_hmac_mismatch";
                             serverHelloHmacMismatchObserved = true;
                             if (serverHelloHmacMismatchTime == 0) {
                                 serverHelloHmacMismatchTime = ConnectionsManager::getInstance(instanceNum).getCurrentTimeMonotonicMillis();
@@ -1833,6 +1843,7 @@ void ConnectionSocket::onEvent(uint32_t events) {
                         serverHelloHmacMismatchTime = 0;
                         if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup server_hello_hmac_ok bytes=%zu len1=%zu len2=%zu flight=%zu extra=%zu", this, matchedBytes, len1, len2, appFlightBytes, newBytesRead - matchedBytes);
                         releaseProxyHandshakeAdmission(true, "server_hello_hmac_ok");
+                        proxyCheckDiagnostic = "post_handshake_no_appdata";
                         tlsState = 1;
                         proxyAuthState = 0;
                         bytesRead = 0;
@@ -1958,6 +1969,7 @@ void ConnectionSocket::onEvent(uint32_t events) {
                                         if (tlsBufferRecordType == MT_PROXY_TLS_RECORD_APPLICATION_DATA) {
                                             if (!mtproxyFirstTlsDataReceivedLogged) {
                                                 mtproxyFirstTlsDataReceivedLogged = true;
+                                                proxyCheckDiagnostic = "dropped_after_appdata";
                                                 if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup first_tls_app_recv payload=%d", this, tlsBuffer->limit());
                                             }
                                             onReceivedData(tlsBuffer);
@@ -2012,6 +2024,7 @@ void ConnectionSocket::onEvent(uint32_t events) {
         } else {
             if (!mtproxySocketConnectedLogged && (proxyAuthState >= 10 || tlsState != 0)) {
                 mtproxySocketConnectedLogged = true;
+                proxyCheckDiagnostic = "tcp_connected_no_pong";
                 if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup socket_connected state=%d tls=%d", this, (int) proxyAuthState, (int) tlsState);
             }
             if (proxyAuthState != 0) {
@@ -2056,6 +2069,7 @@ void ConnectionSocket::onEvent(uint32_t events) {
                             return;
                         }
                         clearPendingClientHello();
+                        proxyCheckDiagnostic = "client_hello_sent_no_server_hello";
                         if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup client_hello_sent bytes=%u expected=%u domain_len=%d", this, size, size, (int) currentSecretDomain.size());
                         markProxyHandshakeClientHelloSent();
                         adjustWriteOp();

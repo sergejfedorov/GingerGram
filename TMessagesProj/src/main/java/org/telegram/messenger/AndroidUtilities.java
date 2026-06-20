@@ -4714,13 +4714,8 @@ public class AndroidUtilities {
         final boolean[] checking = new boolean[1];
         final Object proxyCheckOwner = new Object();
         final Runnable setProxyCheckFailedStatus = () -> {
-            if (!TextUtils.isEmpty(secret)) {
-                statusTextView[0].setText(getString(R.string.ProxyStatusNotRespondingNow));
-                statusTextView[0].setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
-            } else {
-                statusTextView[0].setText(getString(R.string.Unavailable));
-                statusTextView[0].setTextColor(Theme.getColor(Theme.key_text_RedRegular));
-            }
+            statusTextView[0].setText(ProxyCheckDiagnostics.diagnosticText(ProxyCheckDiagnostics.START_FAILED));
+            statusTextView[0].setTextColor(Theme.getColor(Theme.key_text_RedRegular));
         };
         statusTextView[0].setText(replaceSingleLink(getString(R.string.ProxyBottomSheetCheckStatus), Theme.getColor(Theme.key_chat_messageLinkIn), () -> {
             if (checking[0]) return;
@@ -4735,10 +4730,11 @@ public class AndroidUtilities {
                     SharedConfig.ProxyInfo proxyInfo = new SharedConfig.ProxyInfo(address, Integer.parseInt(port), user, password, secret);
                     boolean started = ProxyCheckScheduler.enqueueNow(UserConfig.selectedAccount, proxyInfo, proxyCheckOwner, new ProxyCheckScheduler.Callback() {
                         @Override
-                        public void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time) {
+                        public void onProxyChecked(SharedConfig.ProxyInfo proxyInfo, long time, String diagnostic) {
                             checking[0] = false;
                             if (time == -1) {
-                                setProxyCheckFailedStatus.run();
+                                statusTextView[0].setText(ProxyCheckDiagnostics.diagnosticText(diagnostic));
+                                statusTextView[0].setTextColor(Theme.getColor(Theme.key_text_RedRegular));
                             } else {
                                 statusTextView[0].setText(LocaleController.formatString(R.string.Ping2, time));
                                 statusTextView[0].setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGreenText));

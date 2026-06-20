@@ -36,6 +36,7 @@ public:
     void setOverrideProxy(std::string address, uint16_t port, std::string username, std::string password, std::string secret, int32_t mtProxyTlsProfile);
     void onHostNameResolved(std::string host, std::string ip, bool ipv6);
     void setMtProxyHandshakePriority(int32_t priority);
+    const char *getProxyCheckDiagnostic();
 
 protected:
     int32_t instanceNum;
@@ -78,6 +79,7 @@ private:
     const char *currentSecretKind = "none";
     bool currentSecretIsFakeTls = false;
     int32_t currentProxyTlsProfile = 0;
+    std::string proxyCheckDiagnostic = "tcp_not_connected";
 
     bool tlsHashMismatch = false;
     bool serverHelloHmacMismatchObserved = false;
