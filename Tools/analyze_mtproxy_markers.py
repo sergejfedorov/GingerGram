@@ -67,6 +67,7 @@ FAKETLS_FAILURE_VERDICTS = {
     "dropped_early_after_appdata",
     "peer_closed_after_client_hello",
 }
+NON_FAILURE_VERDICTS = {"ok", "handshake_ok_no_appdata_sent"}
 
 
 @dataclass
@@ -211,6 +212,11 @@ class Attempt:
         if tls_frames_completed:
             self.tls_frames_completed = max(self.tls_frames_completed, int(tls_frames_completed.group(1)))
 
+        if "close_diagnostic_suppressed" in text:
+            self.events["close_diagnostic_suppressed"] += 1
+            self.event_times.setdefault("close_diagnostic_suppressed", log_time_seconds(text))
+            return
+
         event_map = {
             "connect_start": "connect_start",
             "host_resolve_start": "host_resolve_start",
@@ -284,7 +290,7 @@ class Attempt:
             return "dropped_after_appdata"
         if has("first_tls_app_recv"):
             return "ok"
-        return "post_handshake_no_appdata"
+        return "handshake_ok_no_appdata_sent"
 
     def completed_tls_frames(self) -> int:
         return max(self.tls_frames_completed, self.events["tls_frame_complete"])
@@ -947,9 +953,13 @@ def top_failures(verdicts: Counter[str]) -> str:
     failures = [
         f"{verdict}={count}"
         for verdict, count in verdicts.most_common()
-        if verdict != "ok"
+        if verdict not in NON_FAILURE_VERDICTS
     ]
     return ", ".join(failures[:3]) if failures else "none"
+
+
+def failure_count(verdicts: Counter[str]) -> int:
+    return sum(count for verdict, count in verdicts.items() if verdict not in NON_FAILURE_VERDICTS)
 
 
 def print_faketls_reliability_summary(attempts: list[Attempt]) -> None:
@@ -982,6 +992,7 @@ def print_faketls_reliability_summary(attempts: list[Attempt]) -> None:
         print(
             "    "
             f"{profile}: total={len(items)} ok={verdicts['ok']} ok_rate={ok_percent(verdicts['ok'], len(items))} "
+            f"idle_handshake={verdicts['handshake_ok_no_appdata_sent']} "
             f"pre_server_hello={verdicts['client_hello_sent_no_server_hello']} "
             f"post_handshake={verdicts['post_handshake_no_appdata']} "
             f"early_drop={verdicts['dropped_early_after_appdata']} "
@@ -1006,7 +1017,7 @@ def print_faketls_reliability_summary(attempts: list[Attempt]) -> None:
     suspicious = []
     for (endpoint, profile), items in by_endpoint_profile.items():
         verdicts = Counter(item.verdict() for item in items)
-        failures = len(items) - verdicts["ok"]
+        failures = failure_count(verdicts)
         if len(items) < 2 or failures == 0:
             continue
         suspicious.append((failures, len(items), endpoint, profile, verdicts))
@@ -1039,7 +1050,7 @@ def print_faketls_reliability_summary(attempts: list[Attempt]) -> None:
             print(
                 "    "
                 f"{endpoint}: total={total} max_1s={one_second} max_5s={five_seconds} "
-                f"ok={verdicts['ok']} failures={total - verdicts['ok']} profiles={profile_mix} patterns={pattern_mix}"
+                f"ok={verdicts['ok']} failures={failure_count(verdicts)} profiles={profile_mix} patterns={pattern_mix}"
             )
 
 
@@ -1451,6 +1462,7 @@ def print_report(attempts: list[Attempt], global_lines: list[str]) -> None:
     print("- client_hello_sent_no_server_hello: compare VPN vs non-VPN; with VPN failure points to server/client compatibility, without VPN it can be DPI blackhole.")
     print("- server_hello_hmac_mismatch: likely ClientHello/profile/server response mismatch, not plain packet loss.")
     print("- mtproxy_packet_sent_no_response: plain dd TCP opened and the first MTProxy packet was sent, but no server reply arrived.")
+    print("- handshake_ok_no_appdata_sent: HMAC passed and on_connected fired, but this socket closed before app-data was sent; usually idle/restart noise, not a proxy failure.")
     print("- post_handshake_no_appdata: HMAC passed; inspect TLS app-data write/read path and first MTProto packets.")
     print("- dropped_early_after_appdata: first data arrived, then the session died quickly; inspect post-handshake lifecycle/backoff, not JA4.")
     print("- dropped_after_appdata: startup worked; look at later MTProto keepalive, server close, or external throttling.")

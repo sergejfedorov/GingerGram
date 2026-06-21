@@ -11,6 +11,7 @@ CHECKS = [
     "check_mtproxy_tls_profile_ui.py",
     "check_mtproxy_clienthello_fragmentation.py",
     "check_mtproxy_connection_pattern_modes.py",
+    "check_mtproxy_global_handshake_budget.py",
     "check_mtproxy_startup_cover.py",
     "check_mtproxy_data_layers.py",
     "check_mtproxy_endpoint_resilience_layers.py",

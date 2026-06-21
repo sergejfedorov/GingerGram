@@ -61,6 +61,39 @@ def main():
         "an attempt that reached on_connected must not be reported as tcp_not_connected",
     )
 
+    suppressed_drop = Attempt(key="suppressed-drop")
+    suppressed_drop.add(1, "connection(0x11) mtproxy_startup socket_connect_start ipv6=0 state=10")
+    suppressed_drop.add(2, "connection(0x11) mtproxy_startup socket_connected elapsed=70")
+    suppressed_drop.add(3, "connection(0x11) mtproxy_startup client_hello_sent bytes=1897")
+    suppressed_drop.add(4, "connection(0x11) mtproxy_startup server_hello_hmac_ok bytes=2219 len1=1210 len2=993 flight=993 extra=0")
+    suppressed_drop.add(5, "connection(0x11) mtproxy_startup on_connected tls=1")
+    suppressed_drop.add(6, "connection(0x11) mtproxy_startup first_tls_app_recv payload=105")
+    suppressed_drop.add(
+        7,
+        "connection(0x11) mtproxy_startup close_diagnostic_suppressed "
+        "phase=dropped_after_appdata reason=peer_closed first_tls_sent=1 first_tls_recv=1 first_plain_sent=0 first_plain_recv=0",
+    )
+    require(
+        suppressed_drop.verdict() == "ok",
+        "suppressed close diagnostics after first app-data must not turn a usable connection into a drop",
+    )
+
+    idle_after_handshake = Attempt(key="idle-after-handshake")
+    idle_after_handshake.add(1, "connection(0x12) mtproxy_startup socket_connect_start ipv6=0 state=10")
+    idle_after_handshake.add(2, "connection(0x12) mtproxy_startup socket_connected elapsed=70")
+    idle_after_handshake.add(3, "connection(0x12) mtproxy_startup client_hello_sent bytes=1897")
+    idle_after_handshake.add(4, "connection(0x12) mtproxy_startup server_hello_hmac_ok bytes=2219 len1=1210 len2=993 flight=993 extra=0")
+    idle_after_handshake.add(5, "connection(0x12) mtproxy_startup on_connected tls=1")
+    idle_after_handshake.add(
+        6,
+        "connection(0x12) mtproxy_startup close_diagnostic_suppressed "
+        "phase=post_handshake_no_appdata reason=peer_closed first_tls_sent=0 first_tls_recv=0 first_plain_sent=0 first_plain_recv=0",
+    )
+    require(
+        idle_after_handshake.verdict() == "handshake_ok_no_appdata_sent",
+        "idle post-handshake sockets that never sent app-data must not be reported as post_handshake_no_appdata",
+    )
+
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
         marker_path = Path(handle.name)
         handle.write("logcat.txt:1: connection(0x1) mtproxy_startup socket_connect_start ipv6=0 state=0\n")
@@ -121,6 +154,33 @@ def main():
         handle.write("logcat.txt:15: connection(0x5) mtproxy_startup on_connected tls=1\n")
         handle.write("logcat.txt:15: connection(0x5) mtproxy_startup first_tls_app_recv payload=105\n")
         handle.write("logcat.txt:15: connection(0x5) mtproxy_startup close_diagnostic phase=dropped_early_after_appdata\n")
+        handle.write(
+            "logcat.txt:15: 06-20 15:00:01.200 connection(0x7) mtproxy_startup connect_start proxy_state=10 secret_kind=ee "
+            "is_faketls=1 domain_len=17 profile=android_chrome connection_pattern=strict address=198.51.100.77 port=443\n"
+        )
+        handle.write("logcat.txt:15: connection(0x7) mtproxy_startup socket_connect_start ipv6=0 state=10\n")
+        handle.write("logcat.txt:15: connection(0x7) mtproxy_startup socket_connected elapsed=80\n")
+        handle.write("logcat.txt:15: connection(0x7) mtproxy_startup client_hello_sent bytes=1897\n")
+        handle.write("logcat.txt:15: connection(0x7) mtproxy_startup server_hello_hmac_ok bytes=2219 len1=1210 len2=993 flight=993 extra=0\n")
+        handle.write("logcat.txt:15: connection(0x7) mtproxy_startup on_connected tls=1\n")
+        handle.write(
+            "logcat.txt:15: connection(0x7) mtproxy_startup close_diagnostic_suppressed "
+            "phase=post_handshake_no_appdata reason=peer_closed first_tls_sent=0 first_tls_recv=0 first_plain_sent=0 first_plain_recv=0\n"
+        )
+        handle.write(
+            "logcat.txt:15: 06-20 15:00:01.300 connection(0x8) mtproxy_startup connect_start proxy_state=10 secret_kind=ee "
+            "is_faketls=1 domain_len=17 profile=android_chrome connection_pattern=strict address=198.51.100.88 port=443\n"
+        )
+        handle.write("logcat.txt:15: connection(0x8) mtproxy_startup socket_connect_start ipv6=0 state=10\n")
+        handle.write("logcat.txt:15: connection(0x8) mtproxy_startup socket_connected elapsed=80\n")
+        handle.write("logcat.txt:15: connection(0x8) mtproxy_startup client_hello_sent bytes=1897\n")
+        handle.write("logcat.txt:15: connection(0x8) mtproxy_startup server_hello_hmac_ok bytes=2219 len1=1210 len2=993 flight=993 extra=0\n")
+        handle.write("logcat.txt:15: connection(0x8) mtproxy_startup on_connected tls=1\n")
+        handle.write("logcat.txt:15: connection(0x8) mtproxy_startup first_tls_app_recv payload=105\n")
+        handle.write(
+            "logcat.txt:15: connection(0x8) mtproxy_startup close_diagnostic_suppressed "
+            "phase=dropped_after_appdata reason=peer_closed first_tls_sent=1 first_tls_recv=1 first_plain_sent=0 first_plain_recv=0\n"
+        )
         handle.write(
             "logcat.txt:15: 06-20 15:00:01.500 connection(0x6) mtproxy_startup connect_start proxy_state=10 secret_kind=ee "
             "is_faketls=1 domain_len=17 profile=android_chrome connection_pattern=strict address=198.51.100.66 port=443\n"
@@ -307,6 +367,10 @@ def main():
         "analyzer must classify quick drops after first app data as a distinct post-handshake endpoint/lifecycle phase",
     )
     require(
+        "handshake_ok_no_appdata_sent: 1" in result.stdout,
+        "analyzer must expose idle post-handshake sockets separately from data-path failures",
+    )
+    require(
         "FakeTLS reliability:" in result.stdout and "ok_rate=" in result.stdout,
         "analyzer must print profile reliability percentages for comparing profiles",
     )
@@ -359,6 +423,15 @@ def main():
     require(
         "198.51.100.55:443 dropped_early_after_appdata: 1" in result.stdout,
         "analyzer must include early post-appdata drops in endpoint phase summaries",
+    )
+    require(
+        "198.51.100.77:443 handshake_ok_no_appdata_sent: 1" in result.stdout,
+        "analyzer must classify suppressed idle post-handshake closes by endpoint without calling them data-path drops",
+    )
+    require(
+        "198.51.100.88:443 ok: 1" in result.stdout
+        and "198.51.100.88:443 dropped_after_appdata" not in result.stdout,
+        "suppressed post-appdata close diagnostics must stay out of endpoint drop summaries",
     )
     require(
         "plain.example:443 android_chrome" not in result.stdout,

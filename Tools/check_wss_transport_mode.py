@@ -8,6 +8,8 @@ SHARED_CONFIG = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/Share
 CONNECTIONS_JAVA = ROOT / "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
 PROXY_LIST = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/ProxyListActivity.java"
 PROXY_SETTINGS = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/ProxySettingsActivity.java"
+LAUNCH_ACTIVITY = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/LaunchActivity.java"
+PROXY_DIAGNOSTICS = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/ProxyCheckDiagnostics.java"
 BOT_WEBVIEW = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/web/BotWebViewContainer.java"
 WRAPPER_CPP = ROOT / "TMessagesProj/jni/TgNetWrapper.cpp"
 MANAGER_CPP = ROOT / "TMessagesProj/jni/tgnet/ConnectionsManager.cpp"
@@ -37,6 +39,8 @@ def main() -> None:
     connections = text(CONNECTIONS_JAVA)
     proxy_list = text(PROXY_LIST)
     proxy_settings = text(PROXY_SETTINGS)
+    launch_activity = text(LAUNCH_ACTIVITY)
+    proxy_diagnostics = text(PROXY_DIAGNOSTICS)
     bot_webview = text(BOT_WEBVIEW)
     wrapper = text(WRAPPER_CPP)
     manager_cpp = text(MANAGER_CPP)
@@ -78,6 +82,9 @@ def main() -> None:
     require("isWssTransportSelected()" in proxy_list and "isPlainSocksProxy" in proxy_list, "proxy UI must expose selected SOCKS5 proxies for every WSS mode without showing MTProxy entries")
     require("WssSocksUpstreamHeader" in proxy_list and "WssSocksUpstreamInfo" in proxy_list, "proxy UI must label the SOCKS5 list as WSS upstream, not as the legacy proxy mode")
     require("ProxySettingsActivity.createWssSocksUpstream()" in proxy_list and "ProxySettingsActivity.createWssSocksUpstream(currentInfo)" in proxy_list, "adding or editing a WSS SOCKS5 upstream must open a SOCKS-only proxy editor")
+    require("HeaderStatusTitle" in proxy_diagnostics and "headerStatusTitle(" in proxy_diagnostics, "proxy diagnostics must expose a resource-backed header title for global action-bar status")
+    require("ProxyCheckDiagnostics.headerStatusTitle" in launch_activity and "title = proxyStatusTitle.key" in launch_activity and "titleId = proxyStatusTitle.resId" in launch_activity, "main screen proxy overlay title must use the same proxy diagnostics as the proxy settings header")
+    require('title = "ConnectingToProxyWithDots"' not in launch_activity, "main screen must not show the generic ConnectingToProxyWithDots title for proxy connection state")
 
     require("TYPE_WSS" in proxy_settings and "UseProxyWss" in proxy_settings, "proxy detail UI must offer WSS as a different proxy type")
     require("FIELD_WSS_PATH" in proxy_settings and "FIELD_WSS_HOST" in proxy_settings, "WSS detail UI must expose host/path separately from MTProxy secret")

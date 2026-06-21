@@ -161,9 +161,15 @@ def main() -> None:
         and "admission_disabled" in socket_cpp,
         "ConnectionSocket must use runtime connection-pattern state instead of a compile-time disabled flag",
     )
+    local_dequeue_guard = (
+        "if (mtProxyConnectionPatternUsesAdmission(connectionPatternMode)) {\n        hasNextRequest = mtProxyTakeNextQueuedRequestLocked" in socket_cpp
+        or "if (hadAdmission && !suppressQueuedGrant && mtProxyConnectionPatternUsesAdmission(connectionPatternMode)) {\n            hasNextRequest = mtProxyTakeNextQueuedRequestLocked" in socket_cpp
+    )
+    global_dequeue_guard = (
+        "if (hadAdmission && !suppressQueuedGrant && mtProxyConnectionPatternUsesAdmission(connectionPatternMode)) {\n            hasNextRequest = mtProxyTakeNextQueuedRequestGlobalLocked" in socket_cpp
+    )
     require(
-        ("if (mtProxyConnectionPatternUsesAdmission(connectionPatternMode)) {\n        hasNextRequest = mtProxyTakeNextQueuedRequestLocked" in socket_cpp
-         or "if (hadAdmission && !suppressQueuedGrant && mtProxyConnectionPatternUsesAdmission(connectionPatternMode)) {\n            hasNextRequest = mtProxyTakeNextQueuedRequestLocked" in socket_cpp),
+        local_dequeue_guard or global_dequeue_guard,
         "ConnectionSocket must not grant queued admission requests after the runtime gate is disabled",
     )
     for path in (STRINGS, STRINGS_RU):

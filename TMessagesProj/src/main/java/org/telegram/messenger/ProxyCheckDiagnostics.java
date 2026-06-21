@@ -194,6 +194,45 @@ public class ProxyCheckDiagnostics {
         }
     }
 
+    public static class HeaderStatusTitle {
+        public final String key;
+        public final int resId;
+
+        private HeaderStatusTitle(String key, int resId) {
+            this.key = key;
+            this.resId = resId;
+        }
+    }
+
+    private static HeaderStatusTitle title(String key, int resId) {
+        return new HeaderStatusTitle(key, resId);
+    }
+
+    public static HeaderStatusTitle headerStatusTitle(SharedConfig.ProxyInfo proxyInfo, boolean proxyEnabled, int currentConnectionState) {
+        if (!proxyEnabled) {
+            return title("ProxyWindowStatusDisabled", R.string.ProxyWindowStatusDisabled);
+        }
+        if (proxyInfo == null) {
+            return title("ProxyWindowStatusNoProxy", R.string.ProxyWindowStatusNoProxy);
+        }
+        if (hasFreshFailure(proxyInfo)) {
+            return diagnosticTitle(proxyInfo.lastCheckDiagnostic);
+        }
+        if (currentConnectionState == ConnectionsManager.ConnectionStateConnected || currentConnectionState == ConnectionsManager.ConnectionStateUpdating) {
+            return title("ProxyWindowStatusReady", R.string.ProxyWindowStatusReady);
+        }
+        if (hasFreshLivePhase(proxyInfo)) {
+            return diagnosticTitle(proxyInfo.lastCheckDiagnostic);
+        }
+        if (currentConnectionState == ConnectionsManager.ConnectionStateConnectingToProxy) {
+            return title("ProxyStatusWaitingTcp", R.string.ProxyStatusWaitingTcp);
+        }
+        if (proxyInfo.checking) {
+            return title("ProxyWindowStatusChecking", R.string.ProxyWindowStatusChecking);
+        }
+        return title("ProxyStatusConnectingSlow", R.string.ProxyStatusConnectingSlow);
+    }
+
     public static String statusText(SharedConfig.ProxyInfo proxyInfo, boolean currentProxyEnabled, int currentConnectionState) {
         if (proxyInfo == null) {
             return LocaleController.getString(R.string.ProxyStatusUnknownFail);
@@ -267,6 +306,82 @@ public class ProxyCheckDiagnostics {
 
     public static String shortDiagnosticText(String diagnostic) {
         return diagnosticText(diagnostic);
+    }
+
+    private static HeaderStatusTitle diagnosticTitle(String diagnostic) {
+        switch (normalize(diagnostic)) {
+            case OK:
+                return title("Available", R.string.Available);
+            case CHECKING:
+                return title("ProxyStatusCheckingConnection", R.string.ProxyStatusCheckingConnection);
+            case ADMISSION_QUEUE:
+                return title("ProxyStatusAdmissionQueue", R.string.ProxyStatusAdmissionQueue);
+            case ENDPOINT_COOLDOWN:
+                return title("ProxyStatusEndpointCooldown", R.string.ProxyStatusEndpointCooldown);
+            case TCP_CONNECT_GATE:
+                return title("ProxyStatusTcpConnectGate", R.string.ProxyStatusTcpConnectGate);
+            case DNS_COALESCE_WAIT:
+                return title("ProxyStatusDnsCoalesceWait", R.string.ProxyStatusDnsCoalesceWait);
+            case DNS_CACHE_HIT:
+                return title("ProxyStatusDnsCacheHit", R.string.ProxyStatusDnsCacheHit);
+            case DNS_CACHE_STORE:
+                return title("ProxyStatusDnsCacheStore", R.string.ProxyStatusDnsCacheStore);
+            case PHASE_ADAPTIVE_RECIPE:
+                return title("ProxyStatusPhaseAdaptiveRecipe", R.string.ProxyStatusPhaseAdaptiveRecipe);
+            case HOST_RESOLVE_START:
+                return title("ProxyStatusHostResolve", R.string.ProxyStatusHostResolve);
+            case CONNECT_START:
+                return title("ProxyStatusConnectStart", R.string.ProxyStatusConnectStart);
+            case SOCKET_CONNECT_START:
+                return title("ProxyStatusTcpConnecting", R.string.ProxyStatusTcpConnecting);
+            case SOCKET_CONNECTED:
+                return title("ProxyStatusTcpConnected", R.string.ProxyStatusTcpConnected);
+            case CLIENT_HELLO_SENT:
+                return title("ProxyStatusClientHelloSent", R.string.ProxyStatusClientHelloSent);
+            case ADMISSION_HOLD_AFTER_CLIENT_HELLO_FAILURE:
+                return title("ProxyStatusAdmissionHoldAfterClientHelloFailure", R.string.ProxyStatusAdmissionHoldAfterClientHelloFailure);
+            case SERVER_HELLO_HMAC_OK:
+                return title("ProxyStatusServerHelloOk", R.string.ProxyStatusServerHelloOk);
+            case ON_CONNECTED:
+                return title("ProxyStatusMtprotoStarting", R.string.ProxyStatusMtprotoStarting);
+            case FIRST_TLS_APP_SENT:
+                return title("ProxyStatusFirstDataSent", R.string.ProxyStatusFirstDataSent);
+            case FIRST_TLS_APP_RECV:
+                return title("ProxyStatusFirstDataReceived", R.string.ProxyStatusFirstDataReceived);
+            case FIRST_MTPROXY_PACKET_SENT:
+                return title("ProxyStatusFirstMtproxyPacketSent", R.string.ProxyStatusFirstMtproxyPacketSent);
+            case FIRST_MTPROXY_PACKET_RECV:
+                return title("ProxyStatusFirstMtproxyPacketReceived", R.string.ProxyStatusFirstMtproxyPacketReceived);
+            case WAITING_TCP:
+                return title("ProxyStatusWaitingTcp", R.string.ProxyStatusWaitingTcp);
+            case START_FAILED:
+                return title("ProxyStatusStartFailed", R.string.ProxyStatusStartFailed);
+            case HOST_RESOLVE_FAILED:
+                return title("ProxyStatusHostResolveFailed", R.string.ProxyStatusHostResolveFailed);
+            case TCP_NOT_CONNECTED:
+                return title("ProxyStatusTcpNotConnected", R.string.ProxyStatusTcpNotConnected);
+            case TCP_CONNECTED_NO_PONG:
+                return title("ProxyStatusTcpConnectedNoPong", R.string.ProxyStatusTcpConnectedNoPong);
+            case NETWORK_BLOCK_SUSPECTED:
+                return title("ProxyStatusNetworkBlockSuspected", R.string.ProxyStatusNetworkBlockSuspected);
+            case CLIENT_HELLO_SENT_NO_SERVER_HELLO:
+                return title("ProxyStatusClientHelloNoServerHello", R.string.ProxyStatusClientHelloNoServerHello);
+            case SERVER_HELLO_HMAC_MISMATCH:
+                return title("ProxyStatusServerHelloHmacMismatch", R.string.ProxyStatusServerHelloHmacMismatch);
+            case MTPROXY_PACKET_SENT_NO_RESPONSE:
+                return title("ProxyStatusMtproxyPacketSentNoResponse", R.string.ProxyStatusMtproxyPacketSentNoResponse);
+            case POST_HANDSHAKE_NO_APPDATA:
+                return title("ProxyStatusPostHandshakeNoAppData", R.string.ProxyStatusPostHandshakeNoAppData);
+            case DROPPED_EARLY_AFTER_APPDATA:
+                return title("ProxyStatusDroppedEarlyAfterAppData", R.string.ProxyStatusDroppedEarlyAfterAppData);
+            case DROPPED_AFTER_APPDATA:
+                return title("ProxyStatusDroppedAfterAppData", R.string.ProxyStatusDroppedAfterAppData);
+            case CANCELLED:
+                return title("ProxyStatusCancelled", R.string.ProxyStatusCancelled);
+            case UNKNOWN_FAIL:
+            default:
+                return title("ProxyStatusUnknownFail", R.string.ProxyStatusUnknownFail);
+        }
     }
 
     public static int statusColorKey(SharedConfig.ProxyInfo proxyInfo, boolean currentProxyEnabled, int currentConnectionState) {

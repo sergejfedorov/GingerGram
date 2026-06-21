@@ -125,6 +125,7 @@ import org.telegram.messenger.MessagesStorage;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.NotificationsController;
 import org.telegram.messenger.OpenAttachedMenuBotReceiver;
+import org.telegram.messenger.ProxyCheckDiagnostics;
 import org.telegram.messenger.PushListenerController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SendMessagesHelper;
@@ -8244,8 +8245,12 @@ public class LaunchActivity extends BasePermissionsActivity implements INavigati
             title = "Updating";
             titleId = R.string.Updating;
         } else if (currentConnectionState == ConnectionsManager.ConnectionStateConnectingToProxy) {
-            title = "ConnectingToProxyWithDots";
-            titleId = R.string.ConnectingToProxyWithDots;
+            SharedConfig.loadProxyList();
+            SharedPreferences preferences = ApplicationLoader.applicationContext.getSharedPreferences("mainconfig", Activity.MODE_PRIVATE);
+            boolean useProxySettings = preferences.getBoolean("proxy_enabled", false) && !SharedConfig.proxyList.isEmpty();
+            ProxyCheckDiagnostics.HeaderStatusTitle proxyStatusTitle = ProxyCheckDiagnostics.headerStatusTitle(SharedConfig.currentProxy, useProxySettings, currentConnectionState);
+            title = proxyStatusTitle.key;
+            titleId = proxyStatusTitle.resId;
         } else if (currentConnectionState == ConnectionsManager.ConnectionStateConnecting) {
             title = "Connecting";
             titleId = R.string.Connecting;

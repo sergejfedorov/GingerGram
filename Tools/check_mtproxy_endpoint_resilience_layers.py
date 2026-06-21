@@ -119,8 +119,35 @@ def main():
         "dd/plain MTProxy first-packet/no-response and early post-appdata drops must feed endpoint backoff",
     )
     require(
+        "networkFailure" in cooldown_body
+        and 'diagnostic == "host_resolve_failed" || diagnostic == "tcp_not_connected"' in cooldown_body
+        and "MT_PROXY_ENDPOINT_BROWSER_NETWORK_COOLDOWN_MAX_MS" in cooldown_body
+        and "MT_PROXY_ENDPOINT_QUIET_NETWORK_COOLDOWN_MAX_MS" in cooldown_body
+        and "MT_PROXY_ENDPOINT_STRICT_NETWORK_COOLDOWN_MAX_MS" in cooldown_body,
+        "pre-TCP host/DNS failures must use the stronger host:port network cooldown instead of the short handshake cooldown",
+    )
+    require(
         "recordMtProxyEndpointFailure(proxyCheckDiagnostic.c_str()" in socket,
         "closeSocket must feed close diagnostics back into endpoint resilience state",
+    )
+    close_start = socket.find("void ConnectionSocket::closeSocket")
+    close_end = socket.find("void ConnectionSocket::onDisconnected", close_start)
+    close_body = socket[close_start:close_end]
+    require(
+        "suppressProxyCloseDiagnostic" in close_body
+        and 'proxyCheckDiagnostic == "post_handshake_no_appdata"' in close_body
+        and "!mtproxyFirstTlsFrameSentLogged" in close_body
+        and "!mtproxyFirstPlainDataSentLogged" in close_body
+        and 'proxyCheckDiagnostic == "dropped_after_appdata"' in close_body
+        and "mtproxyFirstTlsDataReceivedLogged || mtproxyFirstPlainDataReceivedLogged" in close_body
+        and "close_diagnostic_suppressed" in close_body,
+        "closeSocket must suppress idle post-handshake closes and already-usable post-appdata closes before publishing a proxy failure",
+    )
+    require(
+        "!suppressProxyCloseDiagnostic && reason != 0 && isCurrentMtProxyConnection() && !proxyCheckDiagnostic.empty()" in close_body
+        and "publishProxyConnectionStage(proxyCheckDiagnostic.c_str())" in close_body
+        and "recordMtProxyEndpointFailure(proxyCheckDiagnostic.c_str(), \"closeSocket\")" in close_body,
+        "closeSocket must still publish and record real non-suppressed MTProxy close diagnostics",
     )
     require(
         "activeTcpConnects" in socket
