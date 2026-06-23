@@ -42,6 +42,17 @@ public:
     bool isProxyCloseDiagnosticSuppressed();
 
 protected:
+    enum class TransportState : uint8_t {
+        Idle,
+        Prepared,
+        WaitingGate,
+        TcpConnecting,
+        EpollRegistered,
+        FaketlsHandshake,
+        MtprotoReady,
+        Closing,
+    };
+
     int32_t instanceNum;
     void onEvent(uint32_t events);
     bool checkTimeout(int64_t now);
@@ -73,6 +84,8 @@ private:
     struct sockaddr_in socketAddress;
     struct sockaddr_in6 socketAddress6;
     int socketFd = -1;
+    bool epollRegistered = false;
+    TransportState currentTransportState = TransportState::Idle;
     time_t timeout = 12;
     bool onConnectedSent = false;
     bool socketCloseNotified = false;
@@ -170,6 +183,10 @@ private:
     void closeSocket(int32_t reason, int32_t error);
     void openConnectionInternal(bool ipv6);
     void adjustWriteOp();
+    const char *transportStateName(TransportState state);
+    void setTransportState(TransportState next, const char *reason);
+    void logTransportSnapshot(const char *event, const char *reason);
+    void logTransportInvariant(const char *action, const char *reason);
     bool isCurrentTransportWss();
     bool dispatchWssPayloads(std::vector<std::vector<uint8_t>> &payloads);
     bool scheduleProxyHandshakeAdmissionIfNeeded(bool ipv6, int32_t timerMode);
@@ -185,7 +202,8 @@ private:
     void releaseMtProxyEndpointTcpConnect(const char *reason);
     bool scheduleMtProxyDnsCoalesceIfNeeded(bool ipv6);
     void recordMtProxyEndpointFailure(const char *diagnostic, const char *reason);
-    void recordMtProxyEndpointSuccess(const char *reason);
+    void recordMtProxyEndpointHandshakeOk(const char *reason);
+    void recordMtProxyEndpointDataPathSuccess(const char *reason);
     bool mtProxyEndpointUseCachedHostAddress(const std::string &host, bool *ipv6);
     void mtProxyEndpointStoreResolvedAddress(const std::string &host, const std::string &ip);
     void applyMtProxyPhaseAdaptiveRecipe();

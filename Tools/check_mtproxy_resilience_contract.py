@@ -77,7 +77,7 @@ def main() -> None:
     failure = slice_between(
         socket,
         "void ConnectionSocket::recordMtProxyEndpointFailure",
-        "void ConnectionSocket::recordMtProxyEndpointSuccess",
+        "void ConnectionSocket::recordMtProxyEndpointHandshakeOk",
     )
     send_frame = slice_between(
         socket,

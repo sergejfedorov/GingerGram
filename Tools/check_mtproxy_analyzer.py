@@ -418,7 +418,8 @@ def main():
         )
         handle.write("logcat.txt:15: connection(0x6) mtproxy_startup resolved_sslip host=198.51.100.66.sslip.io address=198.51.100.66\n")
         handle.write("logcat.txt:15: connection(0x6) mtproxy_startup endpoint_failure key=198.51.100.66:443 phase=tcp_not_connected reason=closeSocket connection_pattern=strict priority=0 cooldown_ms=5200 recipe_level=1\n")
-        handle.write("logcat.txt:15: connection(0x6) mtproxy_startup endpoint_success network_key=198.51.100.66:443 key=198.51.100.66:443:cdn.example reason=server_hello_hmac_ok\n")
+        handle.write("logcat.txt:15: connection(0x6) mtproxy_startup endpoint_handshake_ok network_key=198.51.100.66:443 key=198.51.100.66:443:cdn.example reason=server_hello_hmac_ok\n")
+        handle.write("logcat.txt:15: connection(0x6) mtproxy_startup endpoint_data_path_success network_key=198.51.100.66:443 key=198.51.100.66:443:cdn.example reason=first_tls_app_recv\n")
         handle.write("logcat.txt:15: connection(0x6) mtproxy_startup host_resolve_failed host=blocked-dns.example reason=no_delegate\n")
         handle.write(
             "logcat.txt:16: proxy_check_start state=ping_sent ping_id=1 request_token=1 "
@@ -661,7 +662,8 @@ def main():
     require(
         "resolved_sslip" in result.stdout
         and "endpoint_failure" in result.stdout
-        and "endpoint_success" in result.stdout,
+        and "endpoint_handshake_ok" in result.stdout
+        and "endpoint_data_path_success" in result.stdout,
         "analyzer must preserve endpoint resilience markers for explaining adaptive recipes and sslip.io fast-path behavior",
     )
     require(

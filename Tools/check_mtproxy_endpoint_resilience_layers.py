@@ -262,12 +262,15 @@ def main():
         'releaseMtProxyEndpointTcpConnect("openConnection_reset")' in socket,
         "new openConnection must release any stale active TCP connect slot before resetting endpoint state",
     )
+    require(
+        'recordMtProxyEndpointHandshakeOk("server_hello_hmac_ok")' in socket,
+        "server_hello_hmac_ok must record handshake boundary without clearing endpoint data-path backoff",
+    )
     for marker in [
-        'recordMtProxyEndpointSuccess("server_hello_hmac_ok")',
-        'recordMtProxyEndpointSuccess("first_tls_app_recv")',
-        'recordMtProxyEndpointSuccess("first_mtproxy_packet_recv")',
+        'recordMtProxyEndpointDataPathSuccess("first_tls_app_recv")',
+        'recordMtProxyEndpointDataPathSuccess("first_mtproxy_packet_recv")',
     ]:
-        require(marker in socket, f"endpoint success marker missing: {marker}")
+        require(marker in socket, f"endpoint data-path success marker missing: {marker}")
     require(
         "mtProxyEndpointUseCachedHostAddress" in socket and "mtProxyEndpointStoreResolvedAddress" in socket,
         "DNS failures must have a last-good-IP fallback and store path",
@@ -418,7 +421,7 @@ def main():
         "phase-adaptive recipe must not react to DNS/TCP/plain-dd failures where JA4/ClientHello did not help",
     )
     failure_start = socket.find("void ConnectionSocket::recordMtProxyEndpointFailure")
-    failure_end = socket.find("void ConnectionSocket::recordMtProxyEndpointSuccess", failure_start)
+    failure_end = socket.find("void ConnectionSocket::recordMtProxyEndpointHandshakeOk", failure_start)
     failure_body = socket[failure_start:failure_end]
     state_key_start = socket.find("std::string ConnectionSocket::mtProxyEndpointStateKeyForPhase")
     state_key_end = socket.find("void ConnectionSocket::resetMtProxyEndpointStateForKey", state_key_start)
@@ -445,13 +448,13 @@ def main():
         "currentSecretIsFakeTls && mtProxyEndpointFailureNeedsRecipe(phase)" in failure_body,
         "recipe level must only advance for FakeTLS connections, never for dd/legacy MTProxy",
     )
-    success_start = socket.find("void ConnectionSocket::recordMtProxyEndpointSuccess")
+    success_start = socket.find("void ConnectionSocket::recordMtProxyEndpointDataPathSuccess")
     success_end = socket.find("bool ConnectionSocket::mtProxyEndpointUseCachedHostAddress", success_start)
     success_body = socket[success_start:success_end]
     require(
         "resetMtProxyEndpointStateForKey(currentMtProxyNetworkEndpointKey" in success_body
         and "resetMtProxyEndpointStateForKey(currentMtProxyEndpointKey" in success_body,
-        "endpoint success must clear both host/port network cooldown and secret/SNI recipe cooldown",
+        "endpoint data-path success must clear both host/port network cooldown and secret/SNI recipe cooldown",
     )
     require(
         "MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL = 3" in socket,

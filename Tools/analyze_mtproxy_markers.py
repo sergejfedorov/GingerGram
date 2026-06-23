@@ -29,6 +29,7 @@ CONNECT_RE = re.compile(r"connect_start .*profile=([a-z0-9_]+).*address=([^ ]+) 
 KEY_RE = re.compile(r"(?<![A-Za-z0-9_])key=([^ ]+)")
 PRIORITY_RE = re.compile(r"(?<![A-Za-z0-9_])priority=([-0-9]+)")
 CONNECTION_PATTERN_RE = re.compile(r"(?<![A-Za-z0-9_])connection_pattern=([^ ]+)")
+TRANSPORT_STATE_RE = re.compile(r"(?<![A-Za-z0-9_])transport_state=([^ ]+)")
 CLIENT_HELLO_SENT_RE = re.compile(r"client_hello_sent bytes=([0-9]+)")
 DISCONNECT_RE = re.compile(
     r"mtproxy_disconnect reason=([-0-9]+).*?error=([-0-9]+).*?"
@@ -101,6 +102,7 @@ class Attempt:
     telegram_endpoint: str = ""
     priority: str = ""
     connection_pattern: str = ""
+    transport_state: str = ""
     disconnect: str = ""
     disconnect_reason: str = ""
     disconnect_error: str = ""
@@ -197,6 +199,10 @@ class Attempt:
         if connection_pattern:
             self.connection_pattern = connection_pattern.group(1)
 
+        transport_state = TRANSPORT_STATE_RE.search(text)
+        if transport_state:
+            self.transport_state = transport_state.group(1)
+
         profile = PROFILE_RE.search(text)
         if profile:
             self.profile = profile.group(1)
@@ -250,7 +256,10 @@ class Attempt:
             "resolved_sslip": "resolved_sslip",
             "phase_adaptive_recipe": "phase_adaptive_recipe",
             "endpoint_failure": "endpoint_failure",
+            "endpoint_handshake_ok": "endpoint_handshake_ok",
+            "endpoint_data_path_success": "endpoint_data_path_success",
             "endpoint_success": "endpoint_success",
+            "transport_invariant": "transport_invariant",
             "server_hello_hmac_ok": "server_hello_hmac_ok",
             "server_hello_hmac_mismatch": "server_hello_hmac_mismatch",
             "server_hello_hmac_timeout": "server_hello_hmac_timeout",
