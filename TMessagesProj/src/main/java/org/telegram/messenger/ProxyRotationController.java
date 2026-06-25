@@ -98,7 +98,18 @@ public class ProxyRotationController implements NotificationCenter.NotificationC
                 return;
             }
             String diagnostic = (String) args[0];
-            if (args.length < 2 || !(args[1] instanceof String) || !ProxyRuntimeStateStore.shouldScheduleFallback(account, diagnostic, (String) args[1])) {
+            if (args.length < 2 || !(args[1] instanceof String)) {
+                return;
+            }
+            String endpointKey = (String) args[1];
+            if (ProxyPhasePolicy.isProxyUsableSuccessPhase(diagnostic)
+                    && ProxyEndpointKey.matchesLiveStage(SharedConfig.currentProxy, endpointKey)
+                    && ProxyRuntimeStateStore.hasFreshUsableSuccess(SharedConfig.currentProxy)) {
+                cancelScheduledSwitch("usable_success");
+                log("cancel usable_success phase=" + ProxyCheckDiagnostics.normalize(diagnostic) + " endpoint=" + endpointKey + " hold_ms=" + ProxyRuntimeStateStore.usableSuccessRemainingMs(SharedConfig.currentProxy));
+                return;
+            }
+            if (!ProxyRuntimeStateStore.shouldScheduleFallback(account, diagnostic, endpointKey)) {
                 return;
             }
             int state = ConnectionsManager.getInstance(account).getConnectionState();

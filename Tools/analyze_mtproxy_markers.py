@@ -47,6 +47,7 @@ PROXY_CHECK_START_FAILED_RE = re.compile(r"proxy_check_start_failed reason=([^ ]
 PROXY_CHECK_CLOSE_RE = re.compile(r"proxy_check_connection_closed close_reason=([-0-9]+)")
 PROXY_CHECK_CLOSE_WITH_PING_RE = re.compile(r"proxy_check_connection_closed close_reason=([-0-9]+) ping_id=([0-9]+)")
 PROXY_CHECK_IGNORED_CLOSE_RE = re.compile(r"proxy_check_connection_closed_ignored close_reason=([-0-9]+)")
+PROXY_CONTROL_RE = re.compile(r"proxy_control decision=([a-z_]+)")
 PROXY_ROTATION_RE = re.compile(r"proxy_rotation ([a-z_]+)")
 PROXY_CONNECTION_STAGE_RE = re.compile(r"proxy_connection_stage account=([0-9]+) phase=([^ ]+)")
 ENDPOINT_RE = re.compile(r"(?<![A-Za-z0-9_])endpoint=([^ ]+)")
@@ -71,7 +72,7 @@ FAKETLS_FAILURE_VERDICTS = {
     "dropped_early_after_appdata",
     "dropped_after_appdata",
 }
-NON_FAILURE_VERDICTS = {"ok", "handshake_ok_no_appdata_sent", "waiting_proxy_admission", "waiting_tcp_connect_gate"}
+NON_FAILURE_VERDICTS = {"ok", "handshake_ok_no_appdata_sent", "shadowed_by_usable_success", "waiting_proxy_admission", "waiting_tcp_connect_gate"}
 
 
 def event_marker_matches(text: str, needle: str) -> bool:
@@ -255,6 +256,7 @@ class Attempt:
             "dns_cache_store": "dns_cache_store",
             "resolved_sslip": "resolved_sslip",
             "phase_adaptive_recipe": "phase_adaptive_recipe",
+            "endpoint_failure_shadowed_by_success": "endpoint_failure_shadowed_by_success",
             "endpoint_failure": "endpoint_failure",
             "endpoint_handshake_ok": "endpoint_handshake_ok",
             "endpoint_data_path_success": "endpoint_data_path_success",
@@ -320,6 +322,8 @@ class Attempt:
 
     def verdict(self) -> str:
         has = self.events.__contains__
+        if has("endpoint_failure_shadowed_by_success"):
+            return "shadowed_by_usable_success"
         if has("on_connected") and not has("socket_connected"):
             return "connected_without_socket_connected_marker"
         if has("host_resolve_failed"):
@@ -808,6 +812,22 @@ def print_java_live_stage_summary(lines: list[str]) -> None:
     print("  Accounts:")
     for account, count in accounts.most_common():
         print(f"    account{account}: {count}")
+
+
+def print_proxy_control_summary(lines: list[str]) -> None:
+    decisions: Counter[str] = Counter()
+    for text in lines:
+        control = PROXY_CONTROL_RE.search(text)
+        if control:
+            decisions[control.group(1)] += 1
+
+    if not decisions:
+        return
+
+    print()
+    print("Java proxy control decisions:")
+    for decision, count in decisions.most_common():
+        print(f"  {decision}: {count}")
 
 
 def print_faketls_endpoint_summary(attempts: list[Attempt]) -> None:
@@ -1511,6 +1531,7 @@ def print_report(attempts: list[Attempt], global_lines: list[str]) -> None:
         all_lines.extend(attempt.lines)
     print_layer_recommendations(attempts, all_lines)
     print_java_live_stage_summary(all_lines)
+    print_proxy_control_summary(all_lines)
     print_proxy_check_summary(all_lines)
 
     print()
@@ -1544,6 +1565,8 @@ def print_report(attempts: list[Attempt], global_lines: list[str]) -> None:
     print("- dns_coalesce_wait: client delayed a duplicate cold DNS resolve for the same proxy host:port.")
     print("- dns_cache_hit/dns_cache_store: client used or updated the last-good IP for a domain proxy.")
     print("- phase_adaptive_recipe: client changed the next FakeTLS startup recipe after a phase-specific failure.")
+    print("- shadowed_by_usable_success: a late sibling startup failure was ignored because this endpoint recently delivered app-data.")
+    print("- held_by_usable_success: Java control-plane kept the current proxy after fresh app-data success.")
     print("- connected_without_socket_connected_marker: Telegram reached on_connected, but this log slice has no socket_connected marker; do not treat it as a TCP failure.")
     print("- client_hello_sent_no_server_hello: compare VPN vs non-VPN; with VPN failure points to server/client compatibility, without VPN it can be DPI blackhole.")
     print("- server_hello_hmac_mismatch: likely ClientHello/profile/server response mismatch, not plain packet loss.")

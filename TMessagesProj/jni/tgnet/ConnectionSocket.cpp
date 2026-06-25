@@ -2025,6 +2025,10 @@ void ConnectionSocket::recordMtProxyEndpointFailure(const char *diagnostic, cons
     if (!failure.recorded) {
         return;
     }
+    if (failure.shadowedByUsableSuccess) {
+        if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup endpoint_failure_shadowed_by_success key=%s phase=%s reason=%s connection_pattern=%s priority=%d hold_ms=%ld recipe_level=%d", this, failure.stateKey.c_str(), phase.c_str(), reason != nullptr ? reason : "unknown", mtProxyConnectionPatternModeName(connectionPatternMode), proxyHandshakeAdmissionPriority, (long) failure.usableSuccessRemainingMs, failure.recipeLevel);
+        return;
+    }
     if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup endpoint_failure key=%s phase=%s reason=%s connection_pattern=%s priority=%d cooldown_ms=%ld recipe_level=%d", this, failure.stateKey.c_str(), phase.c_str(), reason != nullptr ? reason : "unknown", mtProxyConnectionPatternModeName(connectionPatternMode), proxyHandshakeAdmissionPriority, (long) failure.cooldownMs, failure.recipeLevel);
 }
 
@@ -4017,8 +4021,8 @@ void ConnectionSocket::onEvent(uint32_t events) {
                                                 mtproxyFirstDataReceivedTime = ConnectionsManager::getInstance(instanceNum).getCurrentTimeMonotonicMillis();
                                                 proxyCheckDiagnostic = "dropped_after_appdata";
                                                 publishProxyConnectionStage("first_tls_app_recv");
-                                                recordMtProxyEndpointDataPathSuccess("first_tls_app_recv");
                                                 if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup first_tls_app_recv payload=%d", this, tlsBuffer->limit());
+                                                recordMtProxyEndpointDataPathSuccess("first_tls_app_recv");
                                             }
                                             if (!canDeliverReceivedData("first_tls_app_recv")) {
                                                 closeSocket(1, -1);
@@ -4063,7 +4067,7 @@ void ConnectionSocket::onEvent(uint32_t events) {
                         }
                     }
                 } else if (readCount == 0) {
-                    if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_disconnect recv_eof proxy_state=%d tls_state=%d", this, (int) proxyAuthState, (int) tlsState);
+                    if (LOGS_ENABLED) DEBUG_D("connection(%p) mtproxy_startup recv_eof proxy_state=%d tls_state=%d", this, (int) proxyAuthState, (int) tlsState);
                     closeSocket(1, 0);
                     return;
                 }

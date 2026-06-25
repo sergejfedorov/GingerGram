@@ -36,10 +36,20 @@ final class ProxyStatusMirror {
     }
 
     static boolean hasFreshVisibleUsableSuccess(SharedConfig.ProxyInfo proxyInfo, long now, long holdMs) {
-        return proxyInfo != null
-                && proxyInfo.lastCheckDiagnosticTime != 0
-                && now - proxyInfo.lastCheckDiagnosticTime < holdMs
-                && ProxyPhasePolicy.isProxyUsableSuccessPhase(proxyInfo.lastCheckDiagnostic);
+        return visibleUsableSuccessRemainingMs(proxyInfo, now, holdMs) > 0;
+    }
+
+    static long visibleUsableSuccessRemainingMs(SharedConfig.ProxyInfo proxyInfo, long now, long holdMs) {
+        if (proxyInfo == null
+                || proxyInfo.lastCheckDiagnosticTime == 0
+                || !ProxyPhasePolicy.isProxyUsableSuccessPhase(proxyInfo.lastCheckDiagnostic)) {
+            return 0;
+        }
+        long elapsed = Math.max(0, now - proxyInfo.lastCheckDiagnosticTime);
+        if (elapsed >= holdMs) {
+            return 0;
+        }
+        return holdMs - elapsed;
     }
 
     static void markConnected(SharedConfig.ProxyInfo proxyInfo, long now) {

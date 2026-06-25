@@ -274,7 +274,13 @@ def main() -> None:
         and "decodedSecretForLiveStage" in text("endpoint_key")
         and "if (args == null || args.length < 2 || !(args[1] instanceof String))" in text("proxy_list")
         and "ProxyCheckScheduler.matchesEndpointStageKey(selectedProxy, endpointKey)" in text("proxy_list")
-        and "ProxyRuntimeStateStore.shouldScheduleFallback(account, diagnostic, (String) args[1])" in text("rotation")
+        and (
+            "ProxyRuntimeStateStore.shouldScheduleFallback(account, diagnostic, (String) args[1])" in text("rotation")
+            or (
+                "String endpointKey = (String) args[1];" in text("rotation")
+                and "ProxyRuntimeStateStore.shouldScheduleFallback(account, diagnostic, endpointKey)" in text("rotation")
+            )
+        )
         and "decision=ignored_stale_endpoint" in text("store"),
         "UI and Java lifecycle code must ignore proxy live stages from stale endpoint/secret keys",
     )

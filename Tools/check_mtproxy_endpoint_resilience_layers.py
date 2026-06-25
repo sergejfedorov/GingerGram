@@ -118,11 +118,27 @@ def main():
         "endpoint circuit breaker must run in Default/Soft too; connection pattern may scale delay, not disable it",
     )
     cooldown_start = endpoint_policy.find("static int64_t cooldownMs")
-    cooldown_end = endpoint_policy.find("bool MtProxyEndpointPolicy::extractSslipIpv4Address", cooldown_start)
+    cooldown_end = endpoint_policy.find("static bool failureCanBeShadowedBySuccess", cooldown_start)
+    if cooldown_end == -1:
+        cooldown_end = endpoint_policy.find("bool MtProxyEndpointPolicy::extractSslipIpv4Address", cooldown_start)
     cooldown_body = endpoint_policy[cooldown_start:cooldown_end]
     require(
         "return 0;" not in cooldown_body,
         "endpoint failure recording must produce a small cooldown even in Default/Soft modes",
+    )
+    shadow_start = endpoint_policy.find("static bool failureCanBeShadowedBySuccess")
+    shadow_end = endpoint_policy.find("bool MtProxyEndpointPolicy::extractSslipIpv4Address", shadow_start)
+    shadow_body = endpoint_policy[shadow_start:shadow_end]
+    require(
+        "MT_PROXY_ENDPOINT_USABLE_SUCCESS_HOLD_MS" in endpoint_policy
+        and "usableSuccessRemainingMsLocked" in shadow_body
+        and 'diagnostic == "tcp_not_connected"' in shadow_body
+        and 'diagnostic == "client_hello_sent_no_server_hello"' in shadow_body
+        and 'diagnostic == "mtproxy_packet_sent_no_response"' in shadow_body
+        and 'diagnostic == "post_handshake_no_appdata"' in shadow_body
+        and 'diagnostic == "dropped_early_after_appdata" || diagnostic == "dropped_after_appdata"' in shadow_body
+        and "return false;" in shadow_body,
+        "fresh data-path success must shadow only pre-data-path sibling failures and leave real post-data drops unshadowed",
     )
     require(
         '"mtproxy_packet_sent_no_response"' in cooldown_body

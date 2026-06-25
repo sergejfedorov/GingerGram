@@ -42,8 +42,10 @@ public:
 
     struct FailureResult {
         bool recorded = false;
+        bool shadowedByUsableSuccess = false;
         std::string stateKey;
         int64_t cooldownMs = 0;
+        int64_t usableSuccessRemainingMs = 0;
         int32_t recipeLevel = 0;
     };
 

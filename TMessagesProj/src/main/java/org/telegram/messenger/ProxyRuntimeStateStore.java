@@ -70,6 +70,14 @@ public final class ProxyRuntimeStateStore {
         return ProxyHealthStore.nextAllowedCheckTime(proxyInfo);
     }
 
+    public static boolean hasFreshUsableSuccess(SharedConfig.ProxyInfo proxyInfo) {
+        return ProxyHealthStore.hasFreshUsableSuccess(proxyInfo, SystemClock.elapsedRealtime());
+    }
+
+    public static long usableSuccessRemainingMs(SharedConfig.ProxyInfo proxyInfo) {
+        return ProxyHealthStore.usableSuccessRemainingMs(proxyInfo, SystemClock.elapsedRealtime());
+    }
+
     public static String lastEndpointDiagnostic(SharedConfig.ProxyInfo proxyInfo) {
         return ProxyHealthStore.lastEndpointDiagnostic(proxyInfo, ProxyStatusMirror.diagnostic(proxyInfo));
     }

@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERIFIER = ROOT / "Tools/verify_mtproxy_runtime_logs.py"
 COLLECTOR = ROOT / "Tools/collect_mtproxy_logs.ps1"
 README = ROOT / "README.md"
+SOCKET = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.cpp"
 
 
 def require(condition: bool, message: str) -> None:
@@ -37,6 +38,7 @@ def write_markers(directory: Path, body: str) -> Path:
 def main() -> int:
     collector = COLLECTOR.read_text(encoding="utf-8", errors="replace")
     readme = README.read_text(encoding="utf-8", errors="replace")
+    socket = SOCKET.read_text(encoding="utf-8", errors="replace")
     require(
         "mtproxy_transport" in collector
         and "transport_state" in collector
@@ -62,6 +64,18 @@ def main() -> int:
         "endpoint_data_path_success` должен появляться только после первого `first_tls_app_recv`" in readme
         and "`first_mtproxy_packet_recv`" in readme,
         "README must document that data-path success is ordered after first app-data evidence",
+    )
+    first_tls_recv_log = 'DEBUG_D("connection(%p) mtproxy_startup first_tls_app_recv payload=%d"'
+    first_tls_recv_success = 'recordMtProxyEndpointDataPathSuccess("first_tls_app_recv")'
+    require(
+        first_tls_recv_log in socket
+        and first_tls_recv_success in socket
+        and socket.find(first_tls_recv_log) < socket.find(first_tls_recv_success),
+        "ConnectionSocket must log first_tls_app_recv before endpoint_data_path_success",
+    )
+    require(
+        "mtproxy_disconnect recv_eof" not in socket,
+        "recv_eof marker must not masquerade as a full mtproxy_disconnect summary",
     )
 
     with tempfile.TemporaryDirectory() as tmp:

@@ -49,16 +49,17 @@ final class ProxyHealthStore {
     }
 
     static boolean hasFreshUsableSuccess(SharedConfig.ProxyInfo proxyInfo, long now) {
+        return usableSuccessRemainingMs(proxyInfo, now) > 0;
+    }
+
+    static long usableSuccessRemainingMs(SharedConfig.ProxyInfo proxyInfo, long now) {
         if (proxyInfo == null) {
-            return false;
+            return 0;
         }
-        if (ProxyStatusMirror.hasFreshVisibleUsableSuccess(proxyInfo, now, USABLE_SUCCESS_HOLD_MS)) {
-            return true;
-        }
-        EndpointState exactState = endpointStates.get(ProxyEndpointKey.exact(proxyInfo));
-        EndpointState networkState = endpointStates.get(ProxyEndpointKey.network(proxyInfo));
-        return (exactState != null && exactState.usableSuccessUntil > now)
-                || (networkState != null && networkState.usableSuccessUntil > now);
+        long visibleRemaining = ProxyStatusMirror.visibleUsableSuccessRemainingMs(proxyInfo, now, USABLE_SUCCESS_HOLD_MS);
+        long exactRemaining = usableSuccessRemainingMs(ProxyEndpointKey.exact(proxyInfo), now);
+        long networkRemaining = usableSuccessRemainingMs(ProxyEndpointKey.network(proxyInfo), now);
+        return Math.max(visibleRemaining, Math.max(exactRemaining, networkRemaining));
     }
 
     static void clearUsableSuccessHold(SharedConfig.ProxyInfo proxyInfo) {
@@ -122,6 +123,14 @@ final class ProxyHealthStore {
         if (state != null) {
             state.usableSuccessUntil = 0;
         }
+    }
+
+    private static long usableSuccessRemainingMs(String key, long now) {
+        EndpointState state = endpointStates.get(key);
+        if (state == null || state.usableSuccessUntil <= now) {
+            return 0;
+        }
+        return state.usableSuccessUntil - now;
     }
 
     private static void rememberEndpointConnected(EndpointState state, String diagnostic, long now, boolean usableSuccess) {

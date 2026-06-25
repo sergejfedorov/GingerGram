@@ -22,6 +22,7 @@ static constexpr int64_t MT_PROXY_ENDPOINT_TCP_CONNECT_GATE_REPEAT_MS = 2200;
 static constexpr int64_t MT_PROXY_ENDPOINT_INTERACTIVE_NETWORK_COOLDOWN_MAX_MS = 3500;
 static constexpr int64_t MT_PROXY_ENDPOINT_MEDIA_NETWORK_COOLDOWN_MAX_MS = 5000;
 static constexpr int64_t MT_PROXY_ENDPOINT_HEAVY_NETWORK_COOLDOWN_MAX_MS = 9000;
+static constexpr int64_t MT_PROXY_ENDPOINT_USABLE_SUCCESS_HOLD_MS = 45 * 1000;
 static constexpr int32_t MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL = 3;
 
 struct MtProxyEndpointResilienceState {
@@ -129,6 +130,34 @@ static int64_t cooldownMs(MtProxyEndpointResilienceState &state, const std::stri
         cooldown = maxCooldown;
     }
     return cooldown;
+}
+
+static bool failureCanBeShadowedBySuccess(const std::string &diagnostic) {
+    if (diagnostic == "dropped_early_after_appdata" || diagnostic == "dropped_after_appdata") {
+        return false;
+    }
+    return diagnostic == "host_resolve_failed"
+            || diagnostic == "tcp_not_connected"
+            || diagnostic == "tcp_connected_no_pong"
+            || diagnostic == "client_hello_sent_no_server_hello"
+            || diagnostic == "server_hello_hmac_mismatch"
+            || diagnostic == "mtproxy_packet_sent_no_response"
+            || diagnostic == "post_handshake_no_appdata";
+}
+
+static int64_t usableSuccessRemainingMsLocked(const std::string &key, int64_t now) {
+    if (key.empty()) {
+        return 0;
+    }
+    auto it = proxyEndpointResilience.find(key);
+    if (it == proxyEndpointResilience.end() || it->second.lastSuccessTime <= 0) {
+        return 0;
+    }
+    int64_t elapsed = std::max<int64_t>(0, now - it->second.lastSuccessTime);
+    if (elapsed >= MT_PROXY_ENDPOINT_USABLE_SUCCESS_HOLD_MS) {
+        return 0;
+    }
+    return MT_PROXY_ENDPOINT_USABLE_SUCCESS_HOLD_MS - elapsed;
 }
 
 bool MtProxyEndpointPolicy::extractSslipIpv4Address(const std::string &host, struct in_addr *address, std::string *literalAddress) {
@@ -334,6 +363,19 @@ MtProxyEndpointPolicy::FailureResult MtProxyEndpointPolicy::recordFailure(const 
         return result;
     }
     pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
+    if (failureCanBeShadowedBySuccess(phase)) {
+        result.usableSuccessRemainingMs = usableSuccessRemainingMsLocked(result.stateKey, now);
+        if (result.usableSuccessRemainingMs > 0) {
+            auto stateIt = proxyEndpointResilience.find(result.stateKey);
+            if (stateIt != proxyEndpointResilience.end()) {
+                result.recipeLevel = stateIt->second.recipeLevel;
+            }
+            result.shadowedByUsableSuccess = true;
+            result.recorded = true;
+            pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
+            return result;
+        }
+    }
     MtProxyEndpointResilienceState &state = proxyEndpointResilience[result.stateKey];
     if (failureNeedsCooldown(phase)) {
         result.cooldownMs = ::cooldownMs(state, phase, context.connectionPatternMode, context.priority);

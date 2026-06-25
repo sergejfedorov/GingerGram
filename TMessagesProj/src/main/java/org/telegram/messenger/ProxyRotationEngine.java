@@ -70,6 +70,12 @@ final class ProxyRotationEngine {
             generation++;
             return SwitchDecision.stale("stale_endpoint");
         }
+        if (ProxyRuntimeStateStore.hasFreshUsableSuccess(currentProxy)) {
+            attempt.terminal = true;
+            scheduledAttempt = null;
+            generation++;
+            return SwitchDecision.held("held_by_usable_success", ProxyRuntimeStateStore.usableSuccessRemainingMs(currentProxy));
+        }
 
         attempt.terminal = true;
         scheduledAttempt = null;
@@ -187,6 +193,7 @@ final class ProxyRotationEngine {
         String decision;
         long waitMs;
         boolean stale;
+        boolean held;
 
         private static SwitchDecision candidate(SharedConfig.ProxyInfo proxyInfo, String decision) {
             SwitchDecision result = new SwitchDecision();
@@ -199,6 +206,12 @@ final class ProxyRotationEngine {
             SwitchDecision result = new SwitchDecision();
             result.decision = decision;
             result.waitMs = waitMs;
+            return result;
+        }
+
+        private static SwitchDecision held(String decision, long waitMs) {
+            SwitchDecision result = noCandidate(decision, waitMs);
+            result.held = true;
             return result;
         }
 
