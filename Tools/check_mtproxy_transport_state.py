@@ -8,6 +8,9 @@ SOCKET = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.cpp"
 HEADER = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.h"
 MACHINE = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocketStateMachine.cpp"
 MACHINE_HEADER = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocketStateMachine.h"
+TIMELINE = ROOT / "TMessagesProj/jni/tgnet/MtProxyStartupTimeline.cpp"
+TIMELINE_HEADER = ROOT / "TMessagesProj/jni/tgnet/MtProxyStartupTimeline.h"
+CMAKE = ROOT / "TMessagesProj/jni/CMakeLists.txt"
 ANALYZER = ROOT / "Tools/analyze_mtproxy_markers.py"
 
 
@@ -34,8 +37,12 @@ def main() -> int:
     header = read(HEADER)
     machine = read(MACHINE)
     machine_header = read(MACHINE_HEADER)
+    timeline = read(TIMELINE) if TIMELINE.exists() else ""
+    timeline_header = read(TIMELINE_HEADER) if TIMELINE_HEADER.exists() else ""
+    cmake = read(CMAKE)
     state_source = socket + "\n" + machine
     header_source = header + "\n" + machine_header
+    timeline_source = timeline + "\n" + timeline_header
     analyzer = read(ANALYZER)
 
     for state in (
@@ -54,14 +61,43 @@ def main() -> int:
     require("LifecycleState lifecycle" in machine_header, "ConnectionSocketStateMachine must keep one explicit lifecycle state", failures)
     require("bool registered" in machine_header, "ConnectionSocketStateMachine must track successful epoll registration explicitly", failures)
     require("bool adjustWriteAfterPreTcpGate" in machine_header, "ConnectionSocketStateMachine must track writes queued before live epoll", failures)
-    require("bool tcpConnectAttemptStarted" in machine_header, "ConnectionSocketStateMachine must track whether a real TCP connect was attempted", failures)
-    require("int64_t tcpConnectStartTimeMs" in machine_header, "ConnectionSocketStateMachine must track the monotonic start time of the real TCP connect window", failures)
-    require("int64_t tcpConnectDeadlineMs" in machine_header, "ConnectionSocketStateMachine must track a TCP-connect deadline separate from pre-TCP scheduler waits", failures)
-    require("bool dnsResolveAttemptStarted" in machine_header, "ConnectionSocketStateMachine must track whether delegate DNS was actually started", failures)
-    require("std::string preTcpWaitPhase" in machine_header, "ConnectionSocketStateMachine must track the active local pre-TCP wait phase", failures)
-    require("int64_t preTcpWaitDeadlineMs" in machine_header, "ConnectionSocketStateMachine must track the active local pre-TCP wait deadline", failures)
+    require("MtProxyStartupTimeline startupTimeline" in machine_header, "ConnectionSocketStateMachine must own a single typed MTProxy startup timeline", failures)
+    require('#include "MtProxyStartupTimeline.h"' in machine_header, "ConnectionSocketStateMachine must include the typed MTProxy startup timeline helper", failures)
+    require("bool tcpConnectAttemptStarted" not in machine_header, "real TCP timing must move out of DiagnosticsSubstate into MtProxyStartupTimeline", failures)
+    require("int64_t tcpConnectStartTimeMs" not in machine_header, "raw TCP start timestamp must not live beside diagnostics after timeline extraction", failures)
+    require("int64_t tcpConnectDeadlineMs" not in machine_header, "raw TCP deadline must not live beside diagnostics after timeline extraction", failures)
+    require("bool dnsResolveAttemptStarted" not in machine_header, "DNS attempt latch must move into MtProxyStartupTimeline", failures)
+    require("std::string preTcpWaitPhase" not in machine_header, "string pre-TCP wait phase must not be the source of truth", failures)
+    require("int64_t preTcpWaitDeadlineMs" not in machine_header, "raw pre-TCP deadline must move into MtProxyStartupTimeline", failures)
+    require("#define preTcpWaitPhase" not in socket, "ConnectionSocket must not alias a raw string preTcpWaitPhase after timeline extraction", failures)
+    require("#define dnsResolveAttemptStarted" not in socket, "ConnectionSocket must not alias a raw DNS latch after timeline extraction", failures)
+    require("#define tcpConnectStartTimeMs" not in socket, "ConnectionSocket must not alias a raw TCP start timestamp after timeline extraction", failures)
     require("std::string currentMtProxyAdmissionKey" in machine_header, "ConnectionSocketStateMachine must keep canonical FakeTLS admission identity separate from the mutable lease key", failures)
     require('std::string proxyCheckDiagnostic = "connection_not_started"' in machine_header, "ConnectionSocketStateMachine diagnostic default must not be tcp_not_connected before socket_connect_start", failures)
+    require("tgnet/MtProxyStartupTimeline.cpp" in cmake, "tgnet CMake target must compile MtProxyStartupTimeline.cpp", failures)
+    for token in (
+        "enum class MtProxyStartupPhase",
+        "AdmissionQueue",
+        "EndpointCooldown",
+        "DnsCoalesceWait",
+        "TcpConnectGate",
+        "HostResolve",
+        "TcpConnect",
+        "enum class MtProxyStartupTimerKind",
+        "HostResolveAdmission",
+        "void reset()",
+        "beginLocalWait",
+        "finishLocalWait",
+        "beginDnsResolve",
+        "finishDnsResolve",
+        "beginTcpConnect",
+        "finishTcpConnect",
+        "timeoutDecision",
+        "terminalDiagnostic",
+        "canRunPreTcpTimer",
+        "phaseName",
+    ):
+        require(token in timeline_source, f"MtProxyStartupTimeline must expose typed startup API token: {token}", failures)
     private_start = header.find("private:")
     protected_start = header.find("protected:")
     enum_pos = machine_header.find("enum class LifecycleState")
@@ -467,7 +503,7 @@ def main() -> int:
     require(
         'strcmp(reason, "tcp_connect_gate_wait") == 0' in admission_release_body
         and "isNeutralSchedulerWaitRelease" in admission_release_body
-        and "shouldApplyTcpFailureCooldown = wasActive && !isNeutralSchedulerWaitRelease && tcpConnectAttemptStarted" in admission_release_body
+        and "shouldApplyTcpFailureCooldown = wasActive && !isNeutralSchedulerWaitRelease && startupTimeline.tcpConnectAttemptStarted()" in admission_release_body
         and "else if (!succeeded && wasActive && !isNeutralSchedulerWaitRelease && mtProxyConnectionPatternUsesCooldown(connectionPatternMode))" in admission_release_body,
         "releaseProxyHandshakeAdmission must treat tcp_connect_gate_wait as a neutral scheduler release with no failure cooldown",
         failures,
@@ -558,41 +594,40 @@ def main() -> int:
     )
     tcp_started_body = method_body(socket, "void ConnectionSocket::setMtProxyTcpConnectAttemptStarted", "void ConnectionSocket::setMtProxySocketConnectedLogged")
     require(
-        "tcpConnectAttemptStarted = started;" in tcp_started_body
-        and "tcpConnectStartTimeMs = now;" in tcp_started_body
-        and "if (timeout != 0)" in tcp_started_body
-        and "tcpConnectDeadlineMs = now + (int64_t) timeout * 1000;" in tcp_started_body
-        and "tcpConnectStartTimeMs = 0;" in tcp_started_body
-        and "tcpConnectDeadlineMs = 0;" in tcp_started_body
+        "startupTimeline.beginTcpConnect(now, timeout)" in tcp_started_body
+        and "startupTimeline.finishTcpConnect()" in tcp_started_body
         and "tcp_connect_attempt_started_state_change" in tcp_started_body
         and "tcp_start_ms=%lld" in tcp_started_body
         and "tcp_deadline_ms=%lld" in tcp_started_body
         and "transport_state=%s" in tcp_started_body
         and "epoll_registered=%d" in tcp_started_body,
-        "TCP connect-attempt latch must set and log its own monotonic TCP window through setMtProxyTcpConnectAttemptStarted",
+        "TCP connect-attempt latch must delegate its monotonic TCP window to MtProxyStartupTimeline",
         failures,
     )
     dns_started_body = method_body(socket, "void ConnectionSocket::setMtProxyDnsResolveAttemptStarted", "void ConnectionSocket::setMtProxyPreTcpWaitPhase")
     require(
-        "dnsResolveAttemptStarted = started;" in dns_started_body
+        "startupTimeline.beginDnsResolve(now, timeout)" in dns_started_body
+        and "startupTimeline.finishDnsResolve()" in dns_started_body
         and "dns_resolve_attempt_started_state_change" in dns_started_body
+        and "dns_start_ms=%lld" in dns_started_body
+        and "dns_deadline_ms=%lld" in dns_started_body
         and "transport_state=%s" in dns_started_body
         and "waiting_resolve=%d" in dns_started_body,
-        "DNS resolve-attempt latch must be centralized and logged through setMtProxyDnsResolveAttemptStarted",
+        "DNS resolve-attempt latch must delegate its real DNS window to MtProxyStartupTimeline",
         failures,
     )
     pre_tcp_wait_body = method_body(socket, "void ConnectionSocket::setMtProxyPreTcpWaitPhase", "void ConnectionSocket::classifyMtProxyPreTcpTimeoutDiagnostic")
     require(
-        "preTcpWaitPhase = phase" in pre_tcp_wait_body
-        and "preTcpWaitDeadlineMs = deadlineMs;" in pre_tcp_wait_body
+        "MtProxyStartupPhase phase" in pre_tcp_wait_body
+        and "startupTimeline.beginLocalWait(phase, deadlineMs)" in pre_tcp_wait_body
         and "pre_tcp_wait_state_change" in pre_tcp_wait_body
         and "transport_state=%s" in pre_tcp_wait_body,
-        "pre-TCP wait phase/deadline must be centralized and logged through setMtProxyPreTcpWaitPhase",
+        "pre-TCP wait phase/deadline must be typed and owned by MtProxyStartupTimeline",
         failures,
     )
     require(
         "void ConnectionSocket::finishMtProxyPreTcpWait" in pre_tcp_wait_body
-        and "setMtProxyPreTcpWaitPhase(\"\", 0, reason)" in pre_tcp_wait_body
+        and "startupTimeline.finishLocalWait()" in pre_tcp_wait_body
         and "proxyHandshakeAdmissionGeneration++" in pre_tcp_wait_body
         and "proxyHandshakeAdmissionTimer->stop();" in pre_tcp_wait_body,
         "leaving pre-TCP for real TCP must clear the wait and invalidate stale pre-TCP timer callbacks",
@@ -600,58 +635,41 @@ def main() -> int:
     )
     timer_guard_body = method_body(socket, "bool ConnectionSocket::canRunMtProxyPreTcpTimer", "void ConnectionSocket::classifyMtProxyPreTcpTimeoutDiagnostic")
     require(
-        "timerGeneration != proxyHandshakeAdmissionGeneration" in timer_guard_body
-        and "currentTransportState != TransportState::WaitingGate" in timer_guard_body
-        and "tcpConnectAttemptStarted" in timer_guard_body
-        and "epollRegistered" in timer_guard_body
-        and "socketFd < 0" in timer_guard_body
-        and "proxyHandshakeAdmissionTimerMode != expectedMode" in timer_guard_body
+        "MtProxyStartupTimerDecision" in timer_guard_body
+        and "startupTimeline.canRunPreTcpTimer" in timer_guard_body
         and "pre_tcp_timer_ignored" in timer_guard_body,
-        "pre-TCP timer callbacks must be generation/state guarded and ignored after real TCP/epoll starts",
+        "pre-TCP timer callbacks must be generation/state guarded by MtProxyStartupTimeline and ignored after real DNS/TCP/epoll starts",
         failures,
     )
     classify_pre_tcp_body = method_body(socket, "void ConnectionSocket::classifyMtProxyPreTcpTimeoutDiagnostic", "std::string ConnectionSocket::deriveMtProxyTerminalDiagnostic")
     require(
-        '"tcp_connect_gate_timeout"' in classify_pre_tcp_body
-        and '"admission_timeout"' in classify_pre_tcp_body
-        and '"endpoint_cooldown_timeout"' in classify_pre_tcp_body
-        and '"dns_coalesce_timeout"' in classify_pre_tcp_body
-        and '"host_resolve_timeout"' in classify_pre_tcp_body
-        and '"host_resolve_failed"' not in classify_pre_tcp_body
-        and "preTcpWaitPhase" in classify_pre_tcp_body
-        and "dnsResolveAttemptStarted" in classify_pre_tcp_body
-        and "tcpConnectAttemptStarted" in classify_pre_tcp_body,
-        "pre-TCP timeout classifier must derive local/DNS timeout phases from milestones, not from pending host alone",
+        "startupTimeline.terminalDiagnostic" in classify_pre_tcp_body
+        and '"host_resolve_failed"' not in classify_pre_tcp_body,
+        "pre-TCP timeout classifier must derive local/DNS timeout phases from MtProxyStartupTimeline, not string phases",
         failures,
     )
     terminal_body = method_body(socket, "std::string ConnectionSocket::deriveMtProxyTerminalDiagnostic", "void ConnectionSocket::setMtProxySocketConnectedLogged")
     require(
-        "classifyMtProxyPreTcpTimeoutDiagnostic" in terminal_body
-        and '"tcp_not_connected"' in terminal_body
-        and "tcpConnectAttemptStarted" in terminal_body
-        and "mtproxySocketConnectedLogged" in terminal_body
-        and "dnsResolveAttemptStarted" in terminal_body,
-        "closeSocket must derive terminal diagnostics from real DNS/TCP milestones before publishing",
+        "startupTimeline.terminalDiagnostic" in terminal_body
+        and '"tcp_not_connected"' not in terminal_body,
+        "closeSocket must derive terminal diagnostics from real DNS/TCP milestones owned by MtProxyStartupTimeline",
         failures,
     )
     check_timeout_body = method_body(socket, "bool ConnectionSocket::checkTimeout", "bool ConnectionSocket::hasTlsHashMismatch")
     require(
-        "!tcpConnectAttemptStarted" in check_timeout_body
-        and "preTcpWaitDeadlineMs > now" in check_timeout_body
-        and "currentTransportState == TransportState::Prepared" in check_timeout_body
-        and "currentTransportState == TransportState::WaitingGate" in check_timeout_body
-        and "currentTransportState == TransportState::TcpConnecting" in check_timeout_body
+        "MtProxyStartupTimeoutDecision" in check_timeout_body
+        and "startupTimeline.timeoutDecision(now" in check_timeout_body
+        and "pre_tcp_timeout" in check_timeout_body
         and "return false;" in check_timeout_body,
-        "generic connection timeout must not close an active local pre-TCP scheduler wait before its own deadline",
+        "MTProxy startup timeouts must be decided by MtProxyStartupTimeline before generic lastEventTime handling",
         failures,
     )
     require(
-        "tcpConnectAttemptStarted" in check_timeout_body
-        and "!mtproxySocketConnectedLogged" in check_timeout_body
-        and "tcpConnectDeadlineMs > 0" in check_timeout_body
-        and "now - tcpConnectStartTimeMs" in check_timeout_body
+        "startupDecision.diagnostic" in check_timeout_body
+        and "startupDecision.startMs" in check_timeout_body
+        and "startupDecision.elapsedMs" in check_timeout_body
         and "tcp_connect_timeout" in check_timeout_body,
-        "real TCP connect timeout must be measured from socket_connect_start, not from the pre-TCP/openConnection lastEventTime",
+        "real TCP connect timeout must be measured from the timeline TCP start, not from the pre-TCP/openConnection lastEventTime",
         failures,
     )
     local_phase_body = method_body(socket, "bool ConnectionSocket::mtProxyDiagnosticIsLocalSchedulerTimeout", "void ConnectionSocket::setMtProxySocketConnectedLogged")
@@ -728,33 +746,33 @@ def main() -> int:
         if line.strip().startswith("preTcpWaitDeadlineMs =")
     ]
     require(
-        direct_tcp_started_writes == ["tcpConnectAttemptStarted = started;"],
-        "TCP connect-attempt latch must be written only by setMtProxyTcpConnectAttemptStarted",
+        direct_tcp_started_writes == [],
+        "TCP connect-attempt latch must not be a raw ConnectionSocket assignment after timeline extraction",
         failures,
     )
     require(
-        direct_tcp_start_time_writes == ["tcpConnectStartTimeMs = now;", "tcpConnectStartTimeMs = 0;"],
-        "TCP connect start time must be written only by setMtProxyTcpConnectAttemptStarted",
+        direct_tcp_start_time_writes == [],
+        "TCP connect start time must not be a raw ConnectionSocket assignment after timeline extraction",
         failures,
     )
     require(
-        direct_tcp_deadline_writes == ["tcpConnectDeadlineMs = now + (int64_t) timeout * 1000;", "tcpConnectDeadlineMs = 0;", "tcpConnectDeadlineMs = 0;"],
-        "TCP connect deadline must be written only by setMtProxyTcpConnectAttemptStarted",
+        direct_tcp_deadline_writes == [],
+        "TCP connect deadline must not be a raw ConnectionSocket assignment after timeline extraction",
         failures,
     )
     require(
-        direct_dns_started_writes == ["dnsResolveAttemptStarted = started;"],
-        "DNS resolve-attempt latch must be written only by setMtProxyDnsResolveAttemptStarted",
+        direct_dns_started_writes == [],
+        "DNS resolve-attempt latch must not be a raw ConnectionSocket assignment after timeline extraction",
         failures,
     )
     require(
-        direct_pre_tcp_phase_writes == ["preTcpWaitPhase = phase == nullptr ? \"\" : phase;"],
-        "pre-TCP wait phase must be written only by setMtProxyPreTcpWaitPhase",
+        direct_pre_tcp_phase_writes == [],
+        "pre-TCP wait phase must not be a raw string assignment after timeline extraction",
         failures,
     )
     require(
-        direct_pre_tcp_deadline_writes == ["preTcpWaitDeadlineMs = deadlineMs;"],
-        "pre-TCP wait deadline must be written only by setMtProxyPreTcpWaitPhase",
+        direct_pre_tcp_deadline_writes == [],
+        "pre-TCP wait deadline must not be a raw ConnectionSocket assignment after timeline extraction",
         failures,
     )
     socket_connected_logged_body = method_body(socket, "void ConnectionSocket::setMtProxySocketConnectedLogged", "bool ConnectionSocket::canStartHostResolve")
@@ -810,7 +828,7 @@ def main() -> int:
     require(
         "if (!canStartHostResolve())" in host_resolve_body
         and 'setMtProxyDnsResolveAttemptStarted(true, "host_resolve_start")' in host_resolve_body
-        and 'setMtProxyPreTcpWaitPhase("host_resolve_start"' in host_resolve_body
+        and 'setMtProxyPreTcpWaitPhase(MtProxyStartupPhase::HostResolve' not in host_resolve_body
         and 'setTransportState(TransportState::WaitingGate, "host_resolve_start")' in host_resolve_body
         and "getHostByName(host, instanceNum, this)" in host_resolve_body,
         "requestPendingHostResolve must mark a real DNS start immediately before delegate host resolve",

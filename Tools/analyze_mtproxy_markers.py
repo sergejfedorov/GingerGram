@@ -71,6 +71,7 @@ FAKETLS_FAILURE_VERDICTS = {
     "host_resolve_timeout",
     "tcp_connect_gate_timeout",
     "tcp_budget_stolen_by_pre_tcp_wait",
+    "dns_budget_stolen_by_pre_tcp_wait",
     "tcp_not_connected",
     "tcp_connected_no_pong",
     "client_hello_sent_no_server_hello",
@@ -180,6 +181,32 @@ class Attempt:
             and self.disconnect_reason == "2"
             and self.disconnect_error == "0"
             and self.has_pre_tcp_wait_before_socket_connect()
+        )
+
+    def has_stolen_dns_budget(self) -> bool:
+        dns_close_ms = self.timing_ms_int("host_resolve_start", "mtproxy_disconnect")
+        socket_start = self.event_times.get("socket_connect_start")
+        host_resolve_start = self.event_times.get("host_resolve_start")
+        return (
+            dns_close_ms is not None
+            and dns_close_ms < 250
+            and socket_start is None
+            and host_resolve_start is not None
+            and self.disconnect_reason == "2"
+            and self.disconnect_error == "0"
+            and any(
+                self.event_times.get(event) is not None
+                and self.event_times[event] < host_resolve_start
+                for event in (
+                    "admission_queue",
+                    "admission_queue_wait",
+                    "admission_grant_queued",
+                    "endpoint_cooldown",
+                    "dns_coalesce_wait",
+                    "tcp_connect_gate",
+                    "tcp_connect_gate_wait",
+                )
+            )
         )
 
     def add(self, line_no: int, text: str) -> None:
@@ -386,6 +413,8 @@ class Attempt:
             return "connected_without_socket_connected_marker"
         if has("host_resolve_failed"):
             return "host_resolve_failed"
+        if self.has_stolen_dns_budget():
+            return "dns_budget_stolen_by_pre_tcp_wait"
         if has("host_resolve_timeout"):
             return "host_resolve_timeout"
         if has("endpoint_cooldown_timeout"):
@@ -464,6 +493,8 @@ class Attempt:
             parts.append(f"hmac_ms={hmac_ms}")
         if (tcp_close_ms := self.timing_ms("socket_connect_start", "mtproxy_disconnect")):
             parts.append(f"tcp_close_ms={tcp_close_ms}")
+        if (dns_close_ms := self.timing_ms("host_resolve_start", "mtproxy_disconnect")):
+            parts.append(f"dns_close_ms={dns_close_ms}")
         if self.disconnect_reason:
             parts.append(f"close={self.disconnect_reason}/{self.disconnect_error}")
         return " ".join(parts)
@@ -1287,6 +1318,7 @@ def write_csv_reports(attempts: list[Attempt], global_lines: list[str], out_dir:
                 "priority",
                 "tcp_ms",
                 "tcp_close_ms",
+                "dns_close_ms",
                 "hmac_ms",
                 "app_recv_ms",
                 "tls_frames_completed",
@@ -1315,6 +1347,7 @@ def write_csv_reports(attempts: list[Attempt], global_lines: list[str], out_dir:
                     "priority": attempt.priority,
                     "tcp_ms": attempt.timing_ms("socket_connect_start", "socket_connected"),
                     "tcp_close_ms": attempt.timing_ms("socket_connect_start", "mtproxy_disconnect"),
+                    "dns_close_ms": attempt.timing_ms("host_resolve_start", "mtproxy_disconnect"),
                     "hmac_ms": attempt.timing_ms("client_hello_sent", "server_hello_hmac_ok"),
                     "app_recv_ms": attempt.timing_ms("first_tls_app_sent", "first_tls_app_recv"),
                     "tls_frames_completed": attempt.completed_tls_frames(),
@@ -1663,6 +1696,7 @@ def print_report(attempts: list[Attempt], global_lines: list[str]) -> None:
     print("- tcp_not_connected: TCP connect was attempted, but the socket never reached socket_connected.")
     print("- host_resolve_failed: proxy hostname did not resolve; compare DNS/VPN and sslip.io fast-path before blaming JA4.")
     print("- host_resolve_timeout: proxy DNS lookup started, but no DNS callback arrived before close.")
+    print("- dns_budget_stolen_by_pre_tcp_wait: DNS resolve was closed almost immediately after host_resolve_start following a long pre-TCP wait.")
     print("- endpoint_cooldown: client delayed the next connect for this endpoint after a recent phase-specific failure.")
     print("- tcp_connect_gate: client delayed a duplicate active TCP connect attempt for the same MTProxy endpoint.")
     print("- dns_coalesce_wait: client delayed a duplicate cold DNS resolve for the same proxy host:port.")

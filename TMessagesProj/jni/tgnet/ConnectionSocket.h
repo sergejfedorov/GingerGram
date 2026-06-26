@@ -117,12 +117,13 @@ private:
     void setAdjustWriteOpAfterPreTcpGate(bool pending, const char *reason);
     void setMtProxyTcpConnectAttemptStarted(bool started, const char *reason);
     void setMtProxyDnsResolveAttemptStarted(bool started, const char *reason);
-    void setMtProxyPreTcpWaitPhase(const char *phase, int64_t deadlineMs, const char *reason);
+    void setMtProxyPreTcpWaitPhase(MtProxyStartupPhase phase, int64_t deadlineMs, const char *reason);
     void finishMtProxyPreTcpWait(const char *reason);
-    bool canRunMtProxyPreTcpTimer(int32_t expectedMode, uint32_t timerGeneration);
+    bool canRunMtProxyPreTcpTimer(MtProxyStartupTimerKind expectedKind, uint32_t timerGeneration);
     void classifyMtProxyPreTcpTimeoutDiagnostic(const char *reason);
     std::string deriveMtProxyTerminalDiagnostic(int32_t reason, int32_t error);
     bool mtProxyDiagnosticIsLocalSchedulerTimeout(const char *diagnostic);
+    MtProxyStartupTimerKind mtProxyStartupTimerKindForMode(int32_t mode);
     void setMtProxySocketConnectedLogged(bool logged, const char *reason);
     bool canStartHostResolve();
     void checkHostResolveCallback(const std::string &host);

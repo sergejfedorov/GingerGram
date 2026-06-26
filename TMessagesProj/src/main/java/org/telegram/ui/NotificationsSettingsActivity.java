@@ -103,6 +103,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
 
     private int notificationsServiceRow;
     private int notificationsServiceConnectionRow;
+    private int backgroundNetworkAlwaysOnRow;
 
     private int notificationsSectionRow;
     @Keep
@@ -215,6 +216,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
         otherSectionRow = rowCount++;
         notificationsServiceRow = rowCount++;
         notificationsServiceConnectionRow = rowCount++;
+        backgroundNetworkAlwaysOnRow = rowCount++;
         androidAutoAlertRow = -1;
         repeatRow = rowCount++;
         resetSection2Row = rowCount++;
@@ -736,6 +738,13 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                 } else {
                     ConnectionsManager.getInstance(currentAccount).setPushConnectionEnabled(false);
                 }
+            } else if (position == backgroundNetworkAlwaysOnRow) {
+                SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();
+                enabled = preferences.getBoolean(ConnectionsManager.BACKGROUND_NETWORK_ALWAYS_ON, false);
+                SharedPreferences.Editor editor = preferences.edit();
+                editor.putBoolean(ConnectionsManager.BACKGROUND_NETWORK_ALWAYS_ON, !enabled);
+                editor.commit();
+                ConnectionsManager.applyBackgroundNetworkPolicyForAllAccounts();
             } else if (position == accountsAllRow) {
                 SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();
                 enabled = preferences.getBoolean("AllAccounts", true);
@@ -1021,6 +1030,8 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                         checkCell.setTextAndValueAndCheck(getString("NotificationsService", R.string.NotificationsService), getString("NotificationsServiceInfo", R.string.NotificationsServiceInfo), preferences.getBoolean("pushService", getMessagesController().keepAliveService), true, true);
                     } else if (position == notificationsServiceConnectionRow) {
                         checkCell.setTextAndValueAndCheck(getString("NotificationsServiceConnection", R.string.NotificationsServiceConnection), getString("NotificationsServiceConnectionInfo", R.string.NotificationsServiceConnectionInfo), preferences.getBoolean("pushConnection", getMessagesController().backgroundConnection), true, true);
+                    } else if (position == backgroundNetworkAlwaysOnRow) {
+                        checkCell.setTextAndValueAndCheck(getString("NotificationsBackgroundNetworkAlwaysOn", R.string.NotificationsBackgroundNetworkAlwaysOn), getString("NotificationsBackgroundNetworkAlwaysOnInfo", R.string.NotificationsBackgroundNetworkAlwaysOnInfo), MessagesController.getGlobalNotificationsSettings().getBoolean(ConnectionsManager.BACKGROUND_NETWORK_ALWAYS_ON, false), true, true);
                     } else if (position == badgeNumberShowRow) {
                         checkCell.setTextAndCheck(getString("BadgeNumberShow", R.string.BadgeNumberShow), getNotificationsController().showBadgeNumber, true);
                     } else if (position == badgeNumberMutedRow) {
@@ -1200,6 +1211,7 @@ public class NotificationsSettingsActivity extends BaseFragment implements Notif
                     position == notificationsSectionRow || position == accountsSectionRow) {
                 return 0;
             } else if (position == inappSoundRow || position == inappVibrateRow || position == notificationsServiceConnectionRow ||
+                    position == backgroundNetworkAlwaysOnRow ||
                     position == inappPreviewRow || position == contactJoinedRow || position == pinnedMessageRow ||
                     position == notificationsServiceRow || position == badgeNumberMutedRow || position == badgeNumberMessagesRow ||
                     position == badgeNumberShowRow || position == inappPriorityRow || position == inchatSoundRow ||

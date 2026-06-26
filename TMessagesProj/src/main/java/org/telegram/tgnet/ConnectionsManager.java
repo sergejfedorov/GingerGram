@@ -140,6 +140,7 @@ public class ConnectionsManager extends BaseController {
     public final static int WSS_TRANSPORT_OFFICIAL = SharedConfig.TRANSPORT_WSS_OFFICIAL;
     public final static int WSS_TRANSPORT_CUSTOM = SharedConfig.TRANSPORT_WSS_CUSTOM;
     public final static int WSS_TRANSPORT_SOCKS5 = SharedConfig.TRANSPORT_WSS_SOCKS5;
+    public static final String BACKGROUND_NETWORK_ALWAYS_ON = "backgroundNetworkAlwaysOn";
 
     private static final int MT_PROXY_TLS_PROFILE_RANDOM_COUNT = 2;
     private static final String MT_PROXY_TLS_PROFILE_PREFS = "mtproxy_tls_profile";
@@ -322,6 +323,11 @@ public class ConnectionsManager extends BaseController {
         } else {
             return MessagesController.getMainSettings(UserConfig.selectedAccount).getBoolean("backgroundConnection", false);
         }
+    }
+
+    public static boolean isBackgroundNetworkAlwaysOn() {
+        SharedPreferences preferences = MessagesController.getGlobalNotificationsSettings();
+        return preferences.getBoolean(BACKGROUND_NETWORK_ALWAYS_ON, false);
     }
 
     public long getCurrentTimeMillis() {
@@ -813,10 +819,7 @@ public class ConnectionsManager extends BaseController {
             }
         }
         if (appResumeCount == 0) {
-            if (lastPauseTime == 0) {
-                lastPauseTime = System.currentTimeMillis();
-            }
-            native_pauseNetwork(currentAccount);
+            applyBackgroundNetworkPolicy();
         } else {
             if (appPaused) {
                 return;
@@ -829,6 +832,29 @@ public class ConnectionsManager extends BaseController {
             }
             lastPauseTime = 0;
             native_resumeNetwork(currentAccount, false);
+        }
+    }
+
+    public void applyBackgroundNetworkPolicy() {
+        if (appResumeCount != 0) {
+            return;
+        }
+        if (isBackgroundNetworkAlwaysOn()) {
+            lastPauseTime = 0;
+            native_resumeNetwork(currentAccount, false);
+            return;
+        }
+        if (lastPauseTime == 0) {
+            lastPauseTime = System.currentTimeMillis();
+        }
+        native_pauseNetwork(currentAccount);
+    }
+
+    public static void applyBackgroundNetworkPolicyForAllAccounts() {
+        for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
+            if (UserConfig.getInstance(a).isClientActivated()) {
+                getInstance(a).applyBackgroundNetworkPolicy();
+            }
         }
     }
 
