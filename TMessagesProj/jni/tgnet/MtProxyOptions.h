@@ -19,7 +19,7 @@ static constexpr int32_t MT_PROXY_TLS_PROFILE_CHROME_MODERN = 7;
 static constexpr int32_t MT_PROXY_TLS_PROFILE_LEGACY_NO_GREASE = 8;
 
 static constexpr int32_t MT_PROXY_SERVER_HELLO_PARSER_STANDARD = 0;
-static constexpr int32_t MT_PROXY_SERVER_HELLO_PARSER_LENIENT = 1;
+static constexpr int32_t MT_PROXY_SERVER_HELLO_PARSER_RESERVED = 1;
 
 static constexpr int32_t MT_PROXY_CLIENT_HELLO_FRAGMENTATION_OFF = 0;
 static constexpr int32_t MT_PROXY_CLIENT_HELLO_FRAGMENTATION_SOFT = 1;
@@ -71,7 +71,7 @@ static inline int32_t normalizeMtProxyTlsProfileOption(int32_t value) {
 }
 
 static inline int32_t normalizeMtProxyServerHelloParserOption(int32_t value) {
-    if (value >= MT_PROXY_SERVER_HELLO_PARSER_STANDARD && value <= MT_PROXY_SERVER_HELLO_PARSER_LENIENT) {
+    if (value >= MT_PROXY_SERVER_HELLO_PARSER_STANDARD && value <= MT_PROXY_SERVER_HELLO_PARSER_RESERVED) {
         return value;
     }
     return MT_PROXY_SERVER_HELLO_PARSER_STANDARD;

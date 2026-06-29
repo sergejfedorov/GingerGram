@@ -133,6 +133,7 @@ def main():
         "MT_PROXY_ENDPOINT_USABLE_SUCCESS_HOLD_MS" in endpoint_policy
         and "usableSuccessRemainingMsLocked" in shadow_body
         and 'diagnostic == "tcp_not_connected"' in shadow_body
+        and 'diagnostic == "true_client_hello_timeout"' in shadow_body
         and 'diagnostic == "client_hello_sent_no_server_hello"' in shadow_body
         and 'diagnostic == "mtproxy_packet_sent_no_response"' in shadow_body
         and 'diagnostic == "post_handshake_no_appdata"' in shadow_body
@@ -444,7 +445,8 @@ def main():
     recipe_end = endpoint_policy.find("int64_t MtProxyEndpointPolicy::cooldownMs", recipe_start)
     recipe_body = endpoint_policy[recipe_start:recipe_end]
     require(
-        "client_hello_sent_no_server_hello" in recipe_body
+        "true_client_hello_timeout" in recipe_body
+        and "client_hello_sent_no_server_hello" in recipe_body
         and "server_hello_hmac_mismatch" in recipe_body
         and "post_handshake_no_appdata" in recipe_body,
         "phase-adaptive recipe must react only to FakeTLS/post-ClientHello semantic failures",
@@ -521,15 +523,22 @@ def main():
     adaptive_policy = (ROOT / "TMessagesProj/jni/tgnet/MtProxyAdaptivePolicy.cpp").read_text(encoding="utf-8", errors="replace")
     generic_recipe_start = adaptive_policy.find("if (input.recipeLevel >= 1 && result.clientHelloFragmentation")
     fragment_step = adaptive_policy.find("result.clientHelloFragmentation = MT_PROXY_CLIENT_HELLO_FRAGMENTATION_OFF", generic_recipe_start)
-    profile_step = adaptive_policy.find("result.effectiveTlsProfile = compatibilityTlsProfile", fragment_step)
-    quiet_step = adaptive_policy.find("result.connectionPatternMode = MT_PROXY_CONNECTION_PATTERN_QUIET", profile_step)
+    legacy_step = adaptive_policy.find("input.recipeLevel == 2")
+    alternate_step = adaptive_policy.find("input.recipeLevel >= 3", legacy_step)
+    parser_step = adaptive_policy.find("input.recipeLevel >= 4", alternate_step)
+    quiet_step = adaptive_policy.find("result.connectionPatternMode = MT_PROXY_CONNECTION_PATTERN_QUIET", parser_step)
     require(
         generic_recipe_start != -1
         and fragment_step != -1
-        and profile_step != -1
+        and legacy_step != -1
+        and alternate_step != -1
+        and parser_step != -1
         and quiet_step != -1
-        and fragment_step < profile_step < quiet_step,
-        "phase-adaptive recipe must progress in order: no-fragment, compatibility profile, then quieter startup",
+        and fragment_step < parser_step < quiet_step
+        and "MT_PROXY_TLS_PROFILE_LEGACY_NO_GREASE" in adaptive_policy
+        and "alternateCompatibilityTlsProfile(input.alternateProfileIndex)" in adaptive_policy
+        and "MT_PROXY_SERVER_HELLO_PARSER_RESERVED" in adaptive_policy,
+        "phase-adaptive recipe must progress through no-fragment, legacy/no-modern, alternate profiles, then reserved parser/quiet startup",
     )
     require(
         "result.connectionPatternMode == MT_PROXY_CONNECTION_PATTERN_BROWSER" in adaptive_policy
@@ -537,8 +546,8 @@ def main():
         "phase-adaptive quiet-start step must make Browser mode quieter after repeated post-ClientHello failures",
     )
     require(
-        "compatibilityTlsProfile" in adaptive_policy
-        and "result.effectiveTlsProfile = compatibilityTlsProfile" in adaptive_policy,
+        "MT_PROXY_TLS_PROFILE_LEGACY_NO_GREASE" in adaptive_policy
+        and "alternateCompatibilityTlsProfile(input.alternateProfileIndex)" in adaptive_policy,
         "phase-adaptive recipe must switch to another known-compatible TLS profile",
     )
     require(

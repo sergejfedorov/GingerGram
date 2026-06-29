@@ -52,6 +52,7 @@ FRESH_USABLE_FAILURE_OVERWRITE_PHASES = {
     "host_resolve_timeout",
     "tcp_connected_no_pong",
     "network_block_suspected",
+    "true_client_hello_timeout",
     "client_hello_sent_no_server_hello",
     "tls_alert_after_client_hello",
     "short_tls_response_after_client_hello",

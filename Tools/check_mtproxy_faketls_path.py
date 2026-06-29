@@ -29,7 +29,8 @@ WRAPPER = ROOT / "TMessagesProj/jni/TgNetWrapper.cpp"
 PROFILE_FUNCTIONS = [
     ("firefox", "getFirefoxDefault", "getDefault"),
     ("android_chrome", "getDefault", "getAndroidChromeDefault"),
-    ("chrome_modern", "getChromeModernDefault", "getFirefoxAndroidDefault"),
+    ("chrome_modern", "getChromeModernDefault", "getLegacyNoGreaseDefault"),
+    ("legacy_no_grease_no_4469_no_modern_extensions", "getLegacyNoGreaseDefault", "getFirefoxAndroidDefault"),
     ("firefox_android", "getFirefoxAndroidDefault", "getAndroidOkHttpDefault"),
     ("android_okhttp", "getAndroidOkHttpDefault", "getYandexDefault"),
     ("yandex", "getYandexDefault", None),

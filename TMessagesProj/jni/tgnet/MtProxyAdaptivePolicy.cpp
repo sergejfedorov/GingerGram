@@ -111,8 +111,8 @@ static bool profileUsesModernExtensions(int32_t profile) {
 
 static const char *serverHelloParserName(int32_t parserMode) {
     switch (normalizeMtProxyServerHelloParserOption(parserMode)) {
-        case MT_PROXY_SERVER_HELLO_PARSER_LENIENT:
-            return "lenient_reserved_hmac_parser";
+        case MT_PROXY_SERVER_HELLO_PARSER_RESERVED:
+            return "reserved_hmac_parser";
         case MT_PROXY_SERVER_HELLO_PARSER_STANDARD:
         default:
             return "standard_hmac_parser";
@@ -212,8 +212,8 @@ MtProxyAdaptivePolicy::RecipeResult MtProxyAdaptivePolicy::applyRecipe(const Rec
     }
     if (serverHelloParserVariantAllowed(input.lastDiagnostic)
             && input.recipeLevel >= 4
-            && result.serverHelloParserMode != MT_PROXY_SERVER_HELLO_PARSER_LENIENT) {
-        result.serverHelloParserMode = MT_PROXY_SERVER_HELLO_PARSER_LENIENT;
+            && result.serverHelloParserMode != MT_PROXY_SERVER_HELLO_PARSER_RESERVED) {
+        result.serverHelloParserMode = MT_PROXY_SERVER_HELLO_PARSER_RESERVED;
         result.changed = true;
     }
     if (input.recipeLevel >= 4 && result.connectionPatternMode != MT_PROXY_CONNECTION_PATTERN_STRICT) {

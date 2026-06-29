@@ -25,6 +25,7 @@ STRINGS = ROOT / "TMessagesProj/src/main/res/values/strings.xml"
 STRINGS_RU = ROOT / "TMessagesProj/src/main/res/values-ru/strings.xml"
 
 RECIPE_FAILURES = {
+    "true_client_hello_timeout",
     "client_hello_sent_no_server_hello",
     "tls_alert_after_client_hello",
     "short_tls_response_after_client_hello",
@@ -71,7 +72,8 @@ def main() -> int:
 
     for phase in RECIPE_FAILURES | {"unsupported_for_current_client", "secret_parse_invalid_domain_control_char", "secret_parse_invalid_domain"}:
         require(phase in java_phase_names(), f"phase contract must expose Java phase {phase}", failures)
-        require(phase in native_phase_names(), f"phase contract must expose native phase {phase}", failures)
+        if phase != "client_hello_sent_no_server_hello":
+            require(phase in native_phase_names(), f"phase contract must expose native phase {phase}", failures)
         require(phase.upper() in diagnostics, f"ProxyCheckDiagnostics must define {phase}", failures)
         require(phase in analyzer, f"analyzer must know {phase}", failures)
 
@@ -100,9 +102,9 @@ def main() -> int:
         failures,
     )
     require(
-        'proxyCheckDiagnostic = "client_hello_sent_no_server_hello"' in socket
+        'proxyCheckDiagnostic = "true_client_hello_timeout"' in socket
         and "bytesRead == 0" in block(socket, "void ConnectionSocket::markProxyHandshakeFreezeIfNeeded", "void ConnectionSocket::markProxyServerHelloHmacTimeoutIfNeeded"),
-        "client_hello_sent_no_server_hello must be reserved for true no-bytes timeout after ClientHello",
+        "true_client_hello_timeout must be reserved for true no-bytes timeout after ClientHello",
         failures,
     )
 
@@ -110,7 +112,7 @@ def main() -> int:
     cooldown_body = block(endpoint_policy, "bool MtProxyEndpointPolicy::failureNeedsCooldown", "bool MtProxyEndpointPolicy::failureNeedsRecipe")
     for phase in RECIPE_FAILURES:
         require(phase in recipe_body, f"native endpoint policy must treat {phase} as a recipe failure", failures)
-        if phase != "client_hello_sent_no_server_hello":
+        if phase not in {"true_client_hello_timeout", "client_hello_sent_no_server_hello"}:
             require(phase not in cooldown_body, f"{phase} must not cooldown/quarantine the endpoint directly", failures)
     require(
         '"unsupported_for_current_client"' in cooldown_body
@@ -175,8 +177,9 @@ def main() -> int:
     require(
         "MtProxyRecipe MtProxyAdaptivePolicy::recipeForResult" in adaptive_policy
         and "std::string MtProxyAdaptivePolicy::recipeId" in adaptive_policy
-        and "standard_fake_tls_hmac_parser" in adaptive_policy,
-        "adaptive policy must derive a stable recipe id including parser variant",
+        and "standard_hmac_parser" in adaptive_policy
+        and "reserved_hmac_parser" in adaptive_policy,
+        "adaptive policy must derive a stable recipe id including the standard and reserved parser variants",
         failures,
     )
     require(

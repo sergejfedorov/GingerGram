@@ -174,6 +174,7 @@ def main() -> None:
 
     # Layer 3: FakeTLS phase-adaptive recipe only after post-ClientHello evidence.
     for phase in (
+        "true_client_hello_timeout",
         "client_hello_sent_no_server_hello",
         "tls_alert_after_client_hello",
         "short_tls_response_after_client_hello",
@@ -189,10 +190,12 @@ def main() -> None:
     )
     require(
         "result.clientHelloFragmentation = MT_PROXY_CLIENT_HELLO_FRAGMENTATION_OFF" in adaptive_policy
-        and "result.effectiveTlsProfile = compatibilityTlsProfile" in adaptive_policy
+        and "MT_PROXY_TLS_PROFILE_LEGACY_NO_GREASE" in adaptive_policy
+        and "alternateCompatibilityTlsProfile(input.alternateProfileIndex)" in adaptive_policy
+        and "MT_PROXY_SERVER_HELLO_PARSER_RESERVED" in adaptive_policy
         and "result.connectionPatternMode = MT_PROXY_CONNECTION_PATTERN_QUIET" in adaptive_policy
         and "currentClientHelloFragmentation = recipe.clientHelloFragmentation" in socket,
-        "phase-adaptive recipe must progress by no-fragment, compatibility profile, then quiet startup",
+        "phase-adaptive recipe must progress by no-fragment, legacy/no-modern, alternate profiles, then reserved parser/quiet startup",
     )
 
     # Layer 4: data path is guarded and data-aware; no idle sleeps that stall MTProto.

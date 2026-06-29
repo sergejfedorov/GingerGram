@@ -728,7 +728,7 @@ def main():
         "analyzer must not classify on_connected attempts as TCP failures",
     )
     require(
-        "client_hello_sent_no_server_hello: 1" in result.stdout,
+        "true_client_hello_timeout: 1" in result.stdout,
         "analyzer must classify a connected ClientHello timeout as a pre-ServerHello failure",
     )
     require(
@@ -804,7 +804,7 @@ def main():
         "analyzer must summarize Java-side live proxy stage updates",
     )
     require(
-        "blocked.example:443 client_hello_sent_no_server_hello: 1" in result.stdout,
+        "blocked.example:443 true_client_hello_timeout: 1" in result.stdout,
         "analyzer must summarize FakeTLS phase verdicts by endpoint",
     )
     require(
@@ -844,7 +844,7 @@ def main():
         "analyzer recommendations must route native and proxy-check DNS/TCP failures to endpoint stability, not JA4/DRS",
     )
     require(
-        "faketls_handshake_recipe client_hello_sent_no_server_hello=1" in result.stdout,
+        "faketls_handshake_recipe true_client_hello_timeout=1" in result.stdout,
         "analyzer recommendations must route pre-ServerHello failures to the phase-adaptive FakeTLS recipe",
     )
     require(

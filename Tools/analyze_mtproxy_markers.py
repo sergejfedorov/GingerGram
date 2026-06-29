@@ -76,6 +76,7 @@ FAKETLS_FAILURE_VERDICTS = {
     "tcp_connected_no_pong",
     "secret_parse_invalid_domain_control_char",
     "secret_parse_invalid_domain",
+    "true_client_hello_timeout",
     "client_hello_sent_no_server_hello",
     "tls_alert_after_client_hello",
     "short_tls_response_after_client_hello",
@@ -338,6 +339,7 @@ class Attempt:
             "client_hello_fingerprint": "client_hello_fingerprint",
             "server_data_before_client_hello_complete": "server_data_before_client_hello_complete",
             "client_hello_sent": "client_hello_sent",
+            "true_client_hello_timeout": "true_client_hello_timeout",
             "client_hello_sent_no_server_hello": "client_hello_sent_no_server_hello",
             "mtproxy_tls_after_client_hello": "mtproxy_tls_after_client_hello",
             "tls_alert_after_client_hello": "tls_alert_after_client_hello",
@@ -487,11 +489,13 @@ class Attempt:
                 return "unrecognized_tls_response_after_client_hello"
             if has("server_hello_hmac_mismatch") or has("server_hello_hmac_timeout") or has("server_hello_hmac_wait"):
                 return "server_hello_hmac_mismatch"
+            if has("true_client_hello_timeout"):
+                return "true_client_hello_timeout"
             if has("client_hello_sent_no_server_hello") or has("server_hello_timeout_close") or has("faketls_server_hello_wait_timeout") or has("admission_freeze_detected"):
-                return "client_hello_sent_no_server_hello"
+                return "true_client_hello_timeout"
             if has("recv_eof"):
-                return "client_hello_sent_no_server_hello"
-            return "client_hello_sent_no_server_hello"
+                return "true_client_hello_timeout"
+            return "true_client_hello_timeout"
         if not has("on_connected"):
             return "post_handshake_no_appdata"
         if has("post_handshake_no_appdata"):
@@ -1114,7 +1118,8 @@ def print_layer_recommendations(attempts: list[Attempt], all_lines: list[str]) -
     )
     print(
         "  "
-        f"faketls_handshake_recipe client_hello_sent_no_server_hello={faketls_verdicts['client_hello_sent_no_server_hello']} "
+        f"faketls_handshake_recipe true_client_hello_timeout={faketls_verdicts['true_client_hello_timeout']} "
+        f"client_hello_sent_no_server_hello={faketls_verdicts['client_hello_sent_no_server_hello']} "
         f"tls_alert_after_client_hello={faketls_verdicts['tls_alert_after_client_hello']} "
         f"short_tls_response_after_client_hello={faketls_verdicts['short_tls_response_after_client_hello']} "
         f"unrecognized_tls_response_after_client_hello={faketls_verdicts['unrecognized_tls_response_after_client_hello']} "
@@ -1245,7 +1250,8 @@ def print_faketls_reliability_summary(attempts: list[Attempt]) -> None:
             "    "
             f"{profile}: total={len(items)} ok={verdicts['ok']} ok_rate={ok_percent(verdicts['ok'], len(items))} "
             f"idle_handshake={verdicts['handshake_ok_no_appdata_sent']} "
-            f"pre_server_hello={verdicts['client_hello_sent_no_server_hello']} "
+            f"true_client_hello_timeout={verdicts['true_client_hello_timeout']} "
+            f"pre_server_hello_legacy={verdicts['client_hello_sent_no_server_hello']} "
             f"tls_alert={verdicts['tls_alert_after_client_hello']} "
             f"short_tls={verdicts['short_tls_response_after_client_hello']} "
             f"unrecognized_tls={verdicts['unrecognized_tls_response_after_client_hello']} "
@@ -1317,6 +1323,7 @@ def print_faketls_failure_timeline(attempts: list[Attempt]) -> None:
         and (not attempt.secret_kind or attempt.secret_kind == "ee")
         and attempt.verdict()
         in {
+            "true_client_hello_timeout",
             "client_hello_sent_no_server_hello",
             "tls_alert_after_client_hello",
             "short_tls_response_after_client_hello",
@@ -1417,6 +1424,7 @@ def write_csv_reports(attempts: list[Attempt], global_lines: list[str], out_dir:
             "ok",
             "ok_percent",
             "pre_server_hello",
+            "pre_server_hello_legacy",
             "post_handshake",
             "early_drop",
             "tls_frames_completed",
@@ -1447,7 +1455,9 @@ def write_csv_reports(attempts: list[Attempt], global_lines: list[str], out_dir:
                 "total": len(items),
                 "ok": verdicts["ok"],
                 "ok_percent": ok_percent(verdicts["ok"], len(items)),
-                "pre_server_hello": verdicts["client_hello_sent_no_server_hello"],
+                "pre_server_hello": verdicts["true_client_hello_timeout"] + verdicts["client_hello_sent_no_server_hello"],
+                "true_client_hello_timeout": verdicts["true_client_hello_timeout"],
+                "pre_server_hello_legacy": verdicts["client_hello_sent_no_server_hello"],
                 "tls_alert_after_client_hello": verdicts["tls_alert_after_client_hello"],
                 "short_tls_response_after_client_hello": verdicts["short_tls_response_after_client_hello"],
                 "unrecognized_tls_response_after_client_hello": verdicts["unrecognized_tls_response_after_client_hello"],

@@ -406,7 +406,8 @@ struct MtProxyServerHelloParseResult {
 
 static MtProxyServerHelloParseResult mtProxyParseServerHelloFlight(const std::string &secret, const uint8_t *clientRandom, const uint8_t *data, size_t size, int32_t parserMode) {
     MtProxyServerHelloParseResult result;
-    // Keep alternate parser modes as diagnostics-only slots until a captured server flight proves the exact fork grammar.
+    // reserved_hmac_parser is a diagnostics-only slot. Replace it with a named fork parser
+    // only after captured post-ClientHello hex proves the exact server flight grammar.
     (void) parserMode;
     if (data == nullptr || size < 5) {
         result.waitMore = true;
@@ -1836,8 +1837,8 @@ static const char *mtProxyTlsProfileName(int32_t profile) {
 
 static const char *mtProxyServerHelloParserName(int32_t parserMode) {
     switch (normalizeMtProxyServerHelloParserOption(parserMode)) {
-        case MT_PROXY_SERVER_HELLO_PARSER_LENIENT:
-            return "lenient_reserved_hmac_parser";
+        case MT_PROXY_SERVER_HELLO_PARSER_RESERVED:
+            return "reserved_hmac_parser";
         case MT_PROXY_SERVER_HELLO_PARSER_STANDARD:
         default:
             return "standard_hmac_parser";
@@ -1846,8 +1847,8 @@ static const char *mtProxyServerHelloParserName(int32_t parserMode) {
 
 static const char *mtProxyServerHelloParserVariantName(int32_t parserMode) {
     switch (normalizeMtProxyServerHelloParserOption(parserMode)) {
-        case MT_PROXY_SERVER_HELLO_PARSER_LENIENT:
-            return "lenient_reserved";
+        case MT_PROXY_SERVER_HELLO_PARSER_RESERVED:
+            return "reserved";
         case MT_PROXY_SERVER_HELLO_PARSER_STANDARD:
         default:
             return "standard";
@@ -4806,7 +4807,11 @@ void ConnectionSocket::onEvent(uint32_t events) {
                             return;
                         }
                         if (parseResult.waitMore) {
-                            if (LOGS_ENABLED) DEBUG_D("connection(%p) TLS server hello wait parser=%s reason=%s bytes=%zu candidate=%zu", this, mtProxyServerHelloParserName(currentServerHelloParserMode), parseResult.reason, newBytesRead, parseResult.candidateBytes);
+                            if (LOGS_ENABLED && std::strcmp(parseResult.reason, "server_hello_tail_data_wait") == 0) {
+                                DEBUG_D("connection(%p) TLS server hello wait for tail data parser=%s reason=%s bytes=%zu candidate=%zu", this, mtProxyServerHelloParserName(currentServerHelloParserMode), parseResult.reason, newBytesRead, parseResult.candidateBytes);
+                            } else if (LOGS_ENABLED) {
+                                DEBUG_D("connection(%p) TLS server hello wait parser=%s reason=%s bytes=%zu candidate=%zu", this, mtProxyServerHelloParserName(currentServerHelloParserMode), parseResult.reason, newBytesRead, parseResult.candidateBytes);
+                            }
                             bytesRead = newBytesRead;
                             return;
                         }
