@@ -4110,7 +4110,9 @@ void ConnectionSocket::openConnection(std::string address, uint16_t port, std::s
         currentSecretKind = "wss";
         setProxyAuthState(0, "wss_setup");
         currentWssRoute = selectedWssRoute;
-        std::string wssConnectHost = currentWssRoute.relayIp;
+        std::string wssConnectHost = (wssUsedRelayFallback && !currentWssRoute.relayHostFallback.empty())
+                ? currentWssRoute.relayHostFallback
+                : currentWssRoute.relayIp;
         uint16_t wssConnectPort = currentWssRoute.relayPort;
         if (currentWssRoute.upstreamSocksEnabled) {
             wssConnectHost = currentWssRoute.upstreamSocksAddress;
@@ -4882,6 +4884,15 @@ void ConnectionSocket::onEvent(uint32_t events) {
             int32_t error = -1;
             checkSocketError(&error);
             if (LOGS_ENABLED) DEBUG_E("connection(%p) wss epoll error code=%d", this, error);
+            // Relay connect failed before the WSS path was up: alternate the
+            // relay host (IP <-> domain) so the next reconnect tries the other
+            // one. Reconnect reuses this Connection object, so the flag sticks.
+            if (!currentWssRoute.relayHostFallback.empty()
+                    && currentWssRoute.relayHostFallback != currentWssRoute.relayIp
+                    && (currentWssTransport == nullptr || !currentWssTransport->isReady())) {
+                wssUsedRelayFallback = !wssUsedRelayFallback;
+                if (LOGS_ENABLED) DEBUG_D("connection(%p) wss_startup relay_alternate use_fallback=%d", this, wssUsedRelayFallback ? 1 : 0);
+            }
             closeSocket(1, error);
             return;
         }

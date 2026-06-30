@@ -4,7 +4,7 @@ from java import dynamic_proxy
 from java.lang import Runnable
 from android.view import View
 
-from org.telegram.messenger import AndroidUtilities, FileLog
+from org.telegram.messenger import AndroidUtilities, FileLog, LocaleController
 
 
 def log(msg):
@@ -16,6 +16,18 @@ def log(msg):
         FileLog.d("[plugin] " + str(msg))
     except Exception:
         pass
+
+
+def dp(value):
+    """Density-independent pixels -> px (AndroidUtilities.dp)."""
+    return AndroidUtilities.dp(float(value))
+
+
+def get_string(key, res=0):
+    """Localized UI string by key (LocaleController.getString); optional fallback resource id."""
+    if res:
+        return LocaleController.getString(str(key), int(res))
+    return LocaleController.getString(str(key))
 
 
 class _Runnable(dynamic_proxy(Runnable)):

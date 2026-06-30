@@ -71,6 +71,7 @@ private:
     using TransportActionRule = ConnectionSocketStateMachine::ActionRule;
 
     ConnectionSocketStateMachine stateMachine;
+    bool wssUsedRelayFallback = false;
 
     int32_t checkSocketError(int32_t *error);
     void closeSocket(int32_t reason, int32_t error);

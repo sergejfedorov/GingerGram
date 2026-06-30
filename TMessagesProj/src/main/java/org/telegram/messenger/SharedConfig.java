@@ -639,6 +639,18 @@ public class SharedConfig {
             mtProxyTimingMode = clampInt(preferences.getInt("mtProxyTimingMode", 0), 0, 2);
             mtProxyStartupCoverMode = clampInt(preferences.getInt("mtProxyStartupCoverMode", 0), 0, 2);
             wssTransportMode = normalizeWssTransportMode(preferences.getInt("wssTransportMode", TRANSPORT_LEGACY_PROXY));
+            // Auto-enable official WSS once on first run (DC2/DC4 web relay,
+            // used only when no proxy is configured). The toggle stays user-
+            // controllable; the flag makes turning it off stick permanently.
+            if (!preferences.getBoolean("wss_default_applied", false)) {
+                if (wssTransportMode == TRANSPORT_LEGACY_PROXY) {
+                    wssTransportMode = TRANSPORT_WSS_OFFICIAL;
+                }
+                preferences.edit()
+                        .putInt("wssTransportMode", wssTransportMode)
+                        .putBoolean("wss_default_applied", true)
+                        .apply();
+            }
             wssHost = preferences.getString("wssHost", "");
             wssPort = preferences.getInt("wssPort", 443);
             if (wssPort <= 0 || wssPort > 65535) {

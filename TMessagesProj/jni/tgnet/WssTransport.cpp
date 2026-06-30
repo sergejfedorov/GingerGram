@@ -8,7 +8,9 @@
 #include <arpa/inet.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/sha.h>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <cerrno>
@@ -91,6 +93,9 @@ WssRouteConfig WssTransport::officialRouteFor(int32_t dcId, bool isMedia) {
     } else {
         route.domain = isMedia ? "kws2-1.web.telegram.org" : "kws2.web.telegram.org";
     }
+    // Fallback host: if the hardcoded relay IP is unreachable, the connection
+    // alternates to the domain so DNS yields a currently-valid address.
+    route.relayHostFallback = route.domain;
     return route;
 }
 
@@ -334,7 +339,7 @@ bool WssTransport::queueHttpUpgrade() {
     if (RAND_bytes(randomKey, sizeof(randomKey)) != 1) {
         return false;
     }
-    std::string wsKey = base64Encode(randomKey, sizeof(randomKey));
+    secWebSocketKey = base64Encode(randomKey, sizeof(randomKey));
     std::string path = normalizeWssPath(config.path);
     std::string host = config.domain;
     if (config.relayPort != 443) {
@@ -345,7 +350,7 @@ bool WssTransport::queueHttpUpgrade() {
             "Host: " + host + "\r\n"
             "Upgrade: websocket\r\n"
             "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Key: " + wsKey + "\r\n"
+            "Sec-WebSocket-Key: " + secWebSocketKey + "\r\n"
             "Sec-WebSocket-Version: 13\r\n"
             "Sec-WebSocket-Protocol: binary\r\n"
             "Origin: https://web.telegram.org\r\n"
@@ -530,6 +535,38 @@ bool WssTransport::parseHttpResponse(std::string *diagnostic) {
     if (response.find(" 101 ") == std::string::npos && response.find(" 101\r") == std::string::npos) {
         if (diagnostic != nullptr) {
             *diagnostic = "wss_http_upgrade_failed";
+        }
+        return false;
+    }
+    // Validate Sec-WebSocket-Accept = base64(SHA1(key + GUID)) per RFC 6455.
+    std::string acceptInput = secWebSocketKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    uint8_t acceptHash[SHA_DIGEST_LENGTH];
+    SHA1(reinterpret_cast<const uint8_t *>(acceptInput.data()), acceptInput.size(), acceptHash);
+    std::string expectedAccept = base64Encode(acceptHash, sizeof(acceptHash));
+    std::string lowerResponse = response;
+    std::transform(lowerResponse.begin(), lowerResponse.end(), lowerResponse.begin(),
+            [](unsigned char c) { return (char) std::tolower(c); });
+    size_t acceptPos = lowerResponse.find("sec-websocket-accept:");
+    if (acceptPos == std::string::npos) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "wss_accept_missing";
+        }
+        return false;
+    }
+    size_t valueStart = acceptPos + strlen("sec-websocket-accept:");
+    size_t valueEnd = response.find("\r\n", valueStart);
+    if (valueEnd == std::string::npos) {
+        valueEnd = response.size();
+    }
+    std::string acceptValue = response.substr(valueStart, valueEnd - valueStart);
+    size_t first = acceptValue.find_first_not_of(" \t");
+    size_t last = acceptValue.find_last_not_of(" \t\r");
+    acceptValue = (first == std::string::npos)
+            ? std::string()
+            : acceptValue.substr(first, last - first + 1);
+    if (acceptValue != expectedAccept) {
+        if (diagnostic != nullptr) {
+            *diagnostic = "wss_accept_mismatch";
         }
         return false;
     }

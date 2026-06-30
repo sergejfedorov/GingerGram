@@ -15,6 +15,7 @@ struct WssRouteConfig {
     int32_t mode = 0;
     int32_t gatewayMode = 0;
     std::string relayIp;
+    std::string relayHostFallback;
     uint16_t relayPort = 443;
     std::string domain;
     std::string path = "/apiws";
@@ -84,6 +85,7 @@ private:
     std::vector<uint8_t> pendingOutput;
     size_t pendingOutputOffset = 0;
     std::vector<uint8_t> inputBuffer;
+    std::string secWebSocketKey;
 
     bool pump(std::vector<std::vector<uint8_t>> &payloads, std::string *diagnostic);
     bool pumpTls(std::string *diagnostic);

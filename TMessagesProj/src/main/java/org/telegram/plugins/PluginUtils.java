@@ -82,6 +82,17 @@ public final class PluginUtils {
         AndroidUtilities.runOnUIThread(r);
     }
 
+    public static void runOnUiThread(Runnable r, long delayMs) {
+        if (r == null) {
+            return;
+        }
+        if (delayMs <= 0) {
+            AndroidUtilities.runOnUIThread(r);
+        } else {
+            AndroidUtilities.runOnUIThread(r, delayMs);
+        }
+    }
+
     /** Resolve an app drawable id by name (e.g. "msg_info"); 0 if missing. */
     public static int resolveDrawable(String name) {
         if (name == null || name.length() == 0) {

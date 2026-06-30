@@ -154,6 +154,17 @@ class BasePlugin:
     def hook_all_constructors(self, clazz, hook):
         return self._context.hookAllConstructors(clazz, hook)
 
+    def hook_all_methods(self, clazz, method_name=None, hook=None):
+        """
+        Hook all overloads of method_name on clazz (Xposed-style hookAllMethods). clazz may be a
+        java.lang.Class or a fully-qualified class-name string. The shorter form
+        hook_all_methods(clazz, hook) hooks every declared method. Returns a list of Unhooks.
+        """
+        if hook is None and method_name is not None and not isinstance(method_name, str):
+            hook = method_name      # called as hook_all_methods(clazz, hook)
+            method_name = None
+        return self._context.hookAllMethods(clazz, method_name, hook)
+
     def unhook_method(self, unhook):
         if unhook is not None:
             self._context.unhook(unhook)

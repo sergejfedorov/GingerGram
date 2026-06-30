@@ -71,6 +71,45 @@ public class PluginContext {
         return result;
     }
 
+    /**
+     * Hook every declared method named methodName (all overloads). If methodName is null/empty,
+     * hooks every declared method of the class. clazz may be a java.lang.Class or a
+     * fully-qualified class-name String. Returns the list of Unhook handles.
+     */
+    public List<XC_MethodHook.Unhook> hookAllMethods(Object clazz, String methodName, PyObject pyHook) {
+        List<XC_MethodHook.Unhook> result = new ArrayList<>();
+        Class<?> c = resolveClass(clazz);
+        if (c == null || pyHook == null) {
+            return result;
+        }
+        boolean any = methodName == null || methodName.length() == 0;
+        for (java.lang.reflect.Method m : c.getDeclaredMethods()) {
+            if (!any && !m.getName().equals(methodName)) {
+                continue;
+            }
+            try {
+                XC_MethodHook.Unhook u = XposedBridge.hookMethod(m, new PythonHook(pluginId, pyHook));
+                synchronized (unhooks) {
+                    unhooks.add(u);
+                }
+                result.add(u);
+            } catch (Throwable t) {
+                PluginsController.logError(pluginId, "hook_all_methods(" + c + "#" + methodName + ")", t);
+            }
+        }
+        return result;
+    }
+
+    private static Class<?> resolveClass(Object clazz) {
+        if (clazz instanceof Class) {
+            return (Class<?>) clazz;
+        }
+        if (clazz instanceof String) {
+            return PluginUtils.findClass((String) clazz);
+        }
+        return null;
+    }
+
     /** Remove a single hook previously returned by hookMethod(). */
     public void unhook(Object handle) {
         if (!(handle instanceof XC_MethodHook.Unhook)) {
