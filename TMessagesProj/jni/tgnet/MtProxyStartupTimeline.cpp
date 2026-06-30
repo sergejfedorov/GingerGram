@@ -160,6 +160,8 @@ const char *MtProxyStartupTimeline::phaseName(MtProxyStartupPhase phase) {
             return "admission_queue";
         case MtProxyStartupPhase::EndpointCooldown:
             return "endpoint_cooldown";
+        case MtProxyStartupPhase::ProbeWait:
+            return "mtproxy_probe_wait";
         case MtProxyStartupPhase::DnsCoalesceWait:
             return "dns_coalesce_wait";
         case MtProxyStartupPhase::TcpConnectGate:
@@ -182,6 +184,8 @@ const char *MtProxyStartupTimeline::timerKindName(MtProxyStartupTimerKind kind) 
             return "host_resolve_admission";
         case MtProxyStartupTimerKind::EndpointBackoff:
             return "endpoint_backoff";
+        case MtProxyStartupTimerKind::ProbeWait:
+            return "probe_wait";
         case MtProxyStartupTimerKind::DnsCoalesce:
             return "dns_coalesce";
         case MtProxyStartupTimerKind::TcpConnectGate:
@@ -225,6 +229,7 @@ int64_t MtProxyStartupTimeline::tcpConnectDeadlineMs() const {
 bool MtProxyStartupTimeline::isLocalWaitPhase(MtProxyStartupPhase phase) {
     return phase == MtProxyStartupPhase::AdmissionQueue
             || phase == MtProxyStartupPhase::EndpointCooldown
+            || phase == MtProxyStartupPhase::ProbeWait
             || phase == MtProxyStartupPhase::DnsCoalesceWait
             || phase == MtProxyStartupPhase::TcpConnectGate;
 }
@@ -242,6 +247,8 @@ const char *MtProxyStartupTimeline::timeoutDiagnosticForPhase(MtProxyStartupPhas
             return "admission_timeout";
         case MtProxyStartupPhase::EndpointCooldown:
             return "endpoint_cooldown_timeout";
+        case MtProxyStartupPhase::ProbeWait:
+            return "mtproxy_probe_wait_timeout";
         case MtProxyStartupPhase::DnsCoalesceWait:
             return "dns_coalesce_timeout";
         case MtProxyStartupPhase::TcpConnectGate:
@@ -264,6 +271,7 @@ const char *MtProxyStartupTimeline::timeoutEventForPhase(MtProxyStartupPhase pha
             return "host_resolve_timeout";
         case MtProxyStartupPhase::AdmissionQueue:
         case MtProxyStartupPhase::EndpointCooldown:
+        case MtProxyStartupPhase::ProbeWait:
         case MtProxyStartupPhase::DnsCoalesceWait:
         case MtProxyStartupPhase::TcpConnectGate:
             return "pre_tcp_timeout";

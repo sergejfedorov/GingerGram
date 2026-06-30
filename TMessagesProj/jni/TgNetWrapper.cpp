@@ -390,12 +390,16 @@ void cancelProxyCheck(JNIEnv *env, jclass c, jint instanceNum, jlong pingId) {
     ConnectionsManager::getInstance(instanceNum).cancelProxyCheck((int64_t) pingId);
 }
 
-void cancelProxyEndpointAttempts(JNIEnv *env, jclass c, jint instanceNum, jstring endpointKey, jstring reason) {
+void cancelProxyEndpointAttempts(JNIEnv *env, jclass c, jint instanceNum, jstring endpointKey, jstring probeKey, jstring reason) {
     const char *endpointKeyStr = endpointKey != nullptr ? env->GetStringUTFChars(endpointKey, 0) : nullptr;
+    const char *probeKeyStr = probeKey != nullptr ? env->GetStringUTFChars(probeKey, 0) : nullptr;
     const char *reasonStr = reason != nullptr ? env->GetStringUTFChars(reason, 0) : nullptr;
-    ConnectionsManager::getInstance(instanceNum).cancelProxyEndpointAttempts(endpointKeyStr != nullptr ? endpointKeyStr : "", reasonStr != nullptr ? reasonStr : "unknown");
+    ConnectionsManager::getInstance(instanceNum).cancelProxyEndpointAttempts(endpointKeyStr != nullptr ? endpointKeyStr : "", probeKeyStr != nullptr ? probeKeyStr : "", reasonStr != nullptr ? reasonStr : "unknown");
     if (endpointKeyStr != nullptr) {
         env->ReleaseStringUTFChars(endpointKey, endpointKeyStr);
+    }
+    if (probeKeyStr != nullptr) {
+        env->ReleaseStringUTFChars(probeKey, probeKeyStr);
     }
     if (reasonStr != nullptr) {
         env->ReleaseStringUTFChars(reason, reasonStr);
@@ -416,16 +420,20 @@ class Delegate : public ConnectiosManagerDelegate {
         jniEnv[instanceNum]->CallStaticVoidMethod(jclass_ConnectionsManager, jclass_ConnectionsManager_onConnectionStateChanged, state, instanceNum);
     }
 
-    void onProxyConnectionStageChanged(int32_t instanceNum, std::string diagnostic, std::string endpointKey, std::string origin) {
+    void onProxyConnectionStageChanged(int32_t instanceNum, std::string diagnostic, std::string endpointKey, std::string probeKey, std::string origin) {
         jstring diagnosticString = jniEnv[instanceNum]->NewStringUTF(diagnostic.c_str());
         jstring endpointKeyString = jniEnv[instanceNum]->NewStringUTF(endpointKey.c_str());
+        jstring probeKeyString = jniEnv[instanceNum]->NewStringUTF(probeKey.c_str());
         jstring originString = jniEnv[instanceNum]->NewStringUTF(origin.c_str());
-        jniEnv[instanceNum]->CallStaticVoidMethod(jclass_ConnectionsManager, jclass_ConnectionsManager_onProxyConnectionStageChanged, instanceNum, diagnosticString, endpointKeyString, originString);
+        jniEnv[instanceNum]->CallStaticVoidMethod(jclass_ConnectionsManager, jclass_ConnectionsManager_onProxyConnectionStageChanged, instanceNum, diagnosticString, endpointKeyString, probeKeyString, originString);
         if (diagnosticString != nullptr) {
             jniEnv[instanceNum]->DeleteLocalRef(diagnosticString);
         }
         if (endpointKeyString != nullptr) {
             jniEnv[instanceNum]->DeleteLocalRef(endpointKeyString);
+        }
+        if (probeKeyString != nullptr) {
+            jniEnv[instanceNum]->DeleteLocalRef(probeKeyString);
         }
         if (originString != nullptr) {
             jniEnv[instanceNum]->DeleteLocalRef(originString);
@@ -650,7 +658,7 @@ static JNINativeMethod ConnectionsManagerMethods[] = {
         {"native_applyDnsConfig", "(IJLjava/lang/String;I)V", (void *) applyDnsConfig},
         {"native_checkProxy", "(ILjava/lang/String;ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Lorg/telegram/tgnet/MtProxyOptions;Lorg/telegram/tgnet/RequestTimeDelegate;)J", (void *) checkProxy},
         {"native_cancelProxyCheck", "(IJ)V", (void *) cancelProxyCheck},
-        {"native_cancelProxyEndpointAttempts", "(ILjava/lang/String;Ljava/lang/String;)V", (void *) cancelProxyEndpointAttempts},
+        {"native_cancelProxyEndpointAttempts", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V", (void *) cancelProxyEndpointAttempts},
         {"native_onHostNameResolved", "(Ljava/lang/String;JLjava/lang/String;)V", (void *) onHostNameResolved},
         {"native_discardConnection", "(III)V", (void *) discardConnection},
         {"native_failNotRunningRequest", "(II)V", (void *) failNotRunningRequest},
@@ -775,7 +783,7 @@ extern "C" int registerNativeTgNetFunctions(JavaVM *vm, JNIEnv *env) {
     if (jclass_ConnectionsManager_onConnectionStateChanged == 0) {
         return JNI_FALSE;
     }
-    jclass_ConnectionsManager_onProxyConnectionStageChanged = env->GetStaticMethodID(jclass_ConnectionsManager, "onProxyConnectionStageChanged", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    jclass_ConnectionsManager_onProxyConnectionStageChanged = env->GetStaticMethodID(jclass_ConnectionsManager, "onProxyConnectionStageChanged", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
     if (jclass_ConnectionsManager_onProxyConnectionStageChanged == 0) {
         return JNI_FALSE;
     }

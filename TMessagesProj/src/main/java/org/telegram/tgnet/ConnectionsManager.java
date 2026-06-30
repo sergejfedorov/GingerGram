@@ -978,13 +978,18 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static int cancelProxyEndpointAttempts(String endpointKey, String reason) {
+        return cancelProxyEndpointAttempts(endpointKey, "", reason);
+    }
+
+    public static int cancelProxyEndpointAttempts(String endpointKey, String probeKey, String reason) {
         if (TextUtils.isEmpty(endpointKey)) {
             return 0;
         }
         String nativeReason = TextUtils.isEmpty(reason) ? "unknown" : reason;
+        String nativeProbeKey = TextUtils.isEmpty(probeKey) ? "" : probeKey;
         int requested = 0;
         for (int a = 0; a < UserConfig.MAX_ACCOUNT_COUNT; a++) {
-            native_cancelProxyEndpointAttempts(a, endpointKey, nativeReason);
+            native_cancelProxyEndpointAttempts(a, endpointKey, nativeProbeKey, nativeReason);
             requested++;
         }
         return requested;
@@ -1094,12 +1099,16 @@ public class ConnectionsManager extends BaseController {
     }
 
     public static void onProxyConnectionStageChanged(final int currentAccount, final String diagnostic, final String endpointKey, final String origin) {
+        onProxyConnectionStageChanged(currentAccount, diagnostic, endpointKey, "", origin);
+    }
+
+    public static void onProxyConnectionStageChanged(final int currentAccount, final String diagnostic, final String endpointKey, final String probeKey, final String origin) {
         AndroidUtilities.runOnUIThread(() -> {
-            ProxyConnectionEvent event = ProxyConnectionEvent.nativeStage(currentAccount, diagnostic, endpointKey, origin);
+            ProxyConnectionEvent event = ProxyConnectionEvent.nativeStage(currentAccount, diagnostic, endpointKey, probeKey, origin);
             ProxyRuntimeStateStore.onNativeStage(event);
             String normalizedDiagnostic = event.phase;
             if (BuildVars.LOGS_ENABLED) {
-                FileLog.d("proxy_connection_stage account=" + currentAccount + " origin=" + event.origin.wireName + " phase=" + normalizedDiagnostic + " endpoint=" + endpointKey);
+                FileLog.d("proxy_connection_stage account=" + currentAccount + " origin=" + event.origin.wireName + " phase=" + normalizedDiagnostic + " endpoint=" + endpointKey + " probe=" + event.probeKey);
             }
             NotificationCenter.getGlobalInstance().postNotificationName(NotificationCenter.proxyConnectionStageChanged, normalizedDiagnostic, endpointKey);
             AccountInstance.getInstance(currentAccount).getNotificationCenter().postNotificationName(NotificationCenter.proxyConnectionStageChanged, normalizedDiagnostic, endpointKey);
@@ -1549,7 +1558,7 @@ public class ConnectionsManager extends BaseController {
     public static native void native_applyDnsConfig(int currentAccount, long address, String phone, int date);
     public static native long native_checkProxy(int currentAccount, String address, int port, String username, String password, String secret, MtProxyOptions options, RequestTimeDelegate requestTimeDelegate);
     public static native void native_cancelProxyCheck(int currentAccount, long pingId);
-    public static native void native_cancelProxyEndpointAttempts(int currentAccount, String endpointKey, String reason);
+    public static native void native_cancelProxyEndpointAttempts(int currentAccount, String endpointKey, String probeKey, String reason);
     public static native void native_onHostNameResolved(String host, long address, String ip);
     public static native void native_discardConnection(int currentAccount, int datacenterId, int connectionType);
     public static native void native_failNotRunningRequest(int currentAccount, int token);

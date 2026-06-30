@@ -12,6 +12,7 @@ SOCKET_H = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.h"
 MACHINE_H = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocketStateMachine.h"
 ENDPOINT_POLICY = ROOT / "TMessagesProj/jni/tgnet/MtProxyEndpointPolicy.cpp"
 ADAPTIVE_POLICY = ROOT / "TMessagesProj/jni/tgnet/MtProxyAdaptivePolicy.cpp"
+PROBE_COORDINATOR = ROOT / "TMessagesProj/jni/tgnet/MtProxyProbeCoordinator.cpp"
 CONNECTIONS_JAVA = ROOT / "TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java"
 PROXY_LIST = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/ProxyListActivity.java"
 DIAGNOSTICS = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/ProxyCheckDiagnostics.java"
@@ -46,6 +47,7 @@ def main() -> None:
     socket = read(SOCKET)
     endpoint_policy = read(ENDPOINT_POLICY)
     adaptive_policy = read(ADAPTIVE_POLICY)
+    probe_coordinator = read(PROBE_COORDINATOR)
     socket_h = read(SOCKET_H)
     socket_state = socket_h + "\n" + read(MACHINE_H) + "\n" + socket
     connections_java = read(CONNECTIONS_JAVA)
@@ -75,9 +77,9 @@ def main() -> None:
         "bool MtProxyEndpointPolicy::failureNeedsCooldown",
     )
     recipe = slice_between(
-        adaptive_policy,
-        "bool MtProxyAdaptivePolicy::failureNeedsRecipe",
-        "int32_t MtProxyAdaptivePolicy::adaptiveTlsProfile",
+        probe_coordinator,
+        "bool MtProxyProbeCoordinator::failureNeedsRecipe",
+        "int32_t MtProxyProbeCoordinator::recipeLevelForProbe",
     )
     cooldown = slice_between(
         endpoint_policy,
@@ -145,7 +147,7 @@ def main() -> None:
     require(
         '"host_resolve_failed"' not in recipe
         and 'diagnostic == "tcp_not_connected"' in recipe
-        and "return false; // ClientHello was not sent, so JA4 did not cause this failure." in recipe,
+        and "return false;" in recipe,
         "pre-TLS DNS/TCP failures must not change JA4/profile/ClientHello recipe",
     )
 
@@ -175,6 +177,8 @@ def main() -> None:
     # Layer 3: FakeTLS phase-adaptive recipe only after post-ClientHello evidence.
     for phase in (
         "true_client_hello_timeout",
+        "faketls_server_hello_wait_timeout",
+        "server_closed_after_client_hello",
         "client_hello_sent_no_server_hello",
         "tls_alert_after_client_hello",
         "short_tls_response_after_client_hello",
@@ -184,8 +188,7 @@ def main() -> None:
     ):
         require(phase in recipe, f"FakeTLS recipe must react to {phase}")
     require(
-        "context.fakeTls = currentSecretIsFakeTls" in failure
-        and "context.fakeTls && needsRecipe" in endpoint_policy,
+        "currentSecretIsFakeTls && MtProxyProbeCoordinator::failureNeedsRecipe(phase)" in failure,
         "recipe level must advance only for FakeTLS connections",
     )
     require(

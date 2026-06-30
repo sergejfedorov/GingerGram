@@ -78,6 +78,7 @@ private:
     int32_t checkSocketError(int32_t *error);
     void closeSocket(int32_t reason, int32_t error);
     bool matchesMtProxyEndpointKey(const std::string &endpointKey);
+    bool matchesMtProxyProbeKey(const std::string &probeKey);
     void cancelMtProxyEndpointAttempt(const char *reason);
     bool resetTransportSocketForOpenConnection();
     void openConnectionInternal(bool ipv6);
@@ -151,6 +152,9 @@ private:
     void cancelProxyHandshakeAdmission();
     void releaseProxyHandshakeAdmission(bool succeeded, const char *reason);
     bool scheduleMtProxyEndpointCircuitBreakerIfNeeded(bool ipv6);
+    bool mtProxyProbeBeginOrJoin(bool ipv6);
+    void mtProxyProbeWaitTimerFire(bool ipv6);
+    void completeMtProxyProbeOwner(const char *reason);
     bool scheduleMtProxyEndpointTcpConnectGateIfNeeded(bool ipv6);
     void releaseMtProxyEndpointTcpConnect(const char *reason);
     bool scheduleMtProxyDnsCoalesceIfNeeded(bool ipv6);

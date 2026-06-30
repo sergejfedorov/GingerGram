@@ -74,6 +74,7 @@ def native_diagnostics(socket: str, socket_h: str, startup_timeline: str, connec
         "admission",
         "host_resolve_admission",
         "endpoint_backoff",
+        "probe_wait",
         "dns_coalesce",
         "tcp_connect",
         "pre_tcp_timeout",

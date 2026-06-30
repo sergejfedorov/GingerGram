@@ -190,6 +190,7 @@ public:
         std::string currentProxyTlsProfileKey;
         std::string currentMtProxyEndpointKey;
         std::string currentMtProxyRecipeCacheKey;
+        std::string currentMtProxyProbeKey;
         std::string currentMtProxyNetworkEndpointKey;
         std::string currentMtProxyDnsCacheKey;
         std::string currentMtProxyAdmissionKey;

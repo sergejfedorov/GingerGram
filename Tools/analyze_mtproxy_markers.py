@@ -65,6 +65,7 @@ FAKETLS_FAILURE_VERDICTS = {
     "connection_not_started",
     "admission_timeout",
     "endpoint_cooldown_timeout",
+    "mtproxy_probe_wait_timeout",
     "dns_coalesce_timeout",
     "dns_negative_cache_hit",
     "dns_blocked_zero_address",
@@ -78,7 +79,11 @@ FAKETLS_FAILURE_VERDICTS = {
     "tcp_connected_no_pong",
     "secret_parse_invalid_domain_control_char",
     "secret_parse_invalid_domain",
+    # true_client_hello_timeout is kept as a legacy alias for old captures and
+    # for strict no-EOF/no-bytes deadlines that predate the split verdict.
     "true_client_hello_timeout",
+    "faketls_server_hello_wait_timeout",
+    "server_closed_after_client_hello",
     "client_hello_sent_no_server_hello",
     "tls_alert_after_client_hello",
     "short_tls_response_after_client_hello",
@@ -370,6 +375,14 @@ class Attempt:
             "dns_cache_store": "dns_cache_store",
             "resolved_sslip": "resolved_sslip",
             "phase_adaptive_recipe": "phase_adaptive_recipe",
+            "mtproxy_probe_wait": "mtproxy_probe_wait",
+            "mtproxy_probe_wait_timeout": "mtproxy_probe_wait_timeout",
+            "probe_start": "probe_start",
+            "probe_join": "probe_join",
+            "probe_working_recipe": "probe_working_recipe",
+            "probe_terminal_unsupported": "probe_terminal_unsupported",
+            "probe_wait_timer_fire": "probe_wait_timer_fire",
+            "probe_owner_complete": "probe_owner_complete",
             "endpoint_failure_shadowed_by_success": "endpoint_failure_shadowed_by_success",
             "shadowed_socket_failure": "shadowed_socket_failure",
             "ignored_cancelled_generation": "ignored_cancelled_generation",
@@ -415,6 +428,7 @@ class Attempt:
             "admission_freeze_cooldown": "admission_freeze_cooldown",
             "admission_failure_cooldown": "admission_failure_cooldown",
             "faketls_server_hello_wait_timeout": "faketls_server_hello_wait_timeout",
+            "server_closed_after_client_hello": "server_closed_after_client_hello",
             "admission_freeze_detected": "admission_freeze_detected",
             "admission_freeze_observed": "admission_freeze_observed",
             "admission_hold_after_client_hello_failure": "admission_hold_after_client_hello_failure",
@@ -469,6 +483,8 @@ class Attempt:
         if has("tcp_connect_gate_grant") and has("admission_queue") and not has("socket_connect_start"):
             return "pre_tcp_gate_admission_overlap"
         if not has("socket_connect_start"):
+            if has("mtproxy_probe_wait_timeout"):
+                return "mtproxy_probe_wait_timeout"
             if has("host_resolve_start"):
                 return "host_resolve_timeout"
             if has("endpoint_cooldown"):
@@ -497,6 +513,8 @@ class Attempt:
                 return "background_handshake_aborted"
             if has("unsupported_for_current_client"):
                 return "unsupported_for_current_client"
+            if has("server_closed_after_client_hello"):
+                return "server_closed_after_client_hello"
             if has("tls_alert_after_client_hello"):
                 return "tls_alert_after_client_hello"
             if has("short_tls_response_after_client_hello"):
@@ -507,11 +525,13 @@ class Attempt:
                 return "server_hello_hmac_mismatch"
             if has("true_client_hello_timeout"):
                 return "true_client_hello_timeout"
-            if has("client_hello_sent_no_server_hello") or has("server_hello_timeout_close") or has("faketls_server_hello_wait_timeout") or has("admission_freeze_detected"):
-                return "true_client_hello_timeout"
+            if has("faketls_server_hello_wait_timeout") or has("server_hello_timeout_close"):
+                return "faketls_server_hello_wait_timeout"
+            if has("client_hello_sent_no_server_hello") or has("admission_freeze_detected"):
+                return "client_hello_sent_no_server_hello"
             if has("recv_eof"):
-                return "true_client_hello_timeout"
-            return "true_client_hello_timeout"
+                return "server_closed_after_client_hello"
+            return "faketls_server_hello_wait_timeout"
         if not has("on_connected"):
             return "post_handshake_no_appdata"
         if has("post_handshake_no_appdata"):
@@ -1134,7 +1154,9 @@ def print_layer_recommendations(attempts: list[Attempt], all_lines: list[str]) -
     )
     print(
         "  "
-        f"faketls_handshake_recipe true_client_hello_timeout={faketls_verdicts['true_client_hello_timeout']} "
+        f"faketls_handshake_recipe faketls_server_hello_wait_timeout={faketls_verdicts['faketls_server_hello_wait_timeout']} "
+        f"server_closed_after_client_hello={faketls_verdicts['server_closed_after_client_hello']} "
+        f"true_client_hello_timeout={faketls_verdicts['true_client_hello_timeout']} "
         f"client_hello_sent_no_server_hello={faketls_verdicts['client_hello_sent_no_server_hello']} "
         f"tls_alert_after_client_hello={faketls_verdicts['tls_alert_after_client_hello']} "
         f"short_tls_response_after_client_hello={faketls_verdicts['short_tls_response_after_client_hello']} "
@@ -1471,7 +1493,14 @@ def write_csv_reports(attempts: list[Attempt], global_lines: list[str], out_dir:
                 "total": len(items),
                 "ok": verdicts["ok"],
                 "ok_percent": ok_percent(verdicts["ok"], len(items)),
-                "pre_server_hello": verdicts["true_client_hello_timeout"] + verdicts["client_hello_sent_no_server_hello"],
+                "pre_server_hello": (
+                    verdicts["faketls_server_hello_wait_timeout"]
+                    + verdicts["server_closed_after_client_hello"]
+                    + verdicts["true_client_hello_timeout"]
+                    + verdicts["client_hello_sent_no_server_hello"]
+                ),
+                "faketls_server_hello_wait_timeout": verdicts["faketls_server_hello_wait_timeout"],
+                "server_closed_after_client_hello": verdicts["server_closed_after_client_hello"],
                 "true_client_hello_timeout": verdicts["true_client_hello_timeout"],
                 "pre_server_hello_legacy": verdicts["client_hello_sent_no_server_hello"],
                 "tls_alert_after_client_hello": verdicts["tls_alert_after_client_hello"],

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = {
     "socket": ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.cpp",
     "endpoint_policy": ROOT / "TMessagesProj/jni/tgnet/MtProxyEndpointPolicy.cpp",
+    "probe_coordinator": ROOT / "TMessagesProj/jni/tgnet/MtProxyProbeCoordinator.cpp",
     "socket_header": ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.h",
     "machine_header": ROOT / "TMessagesProj/jni/tgnet/ConnectionSocketStateMachine.h",
     "connection": ROOT / "TMessagesProj/jni/tgnet/Connection.cpp",
@@ -36,6 +37,7 @@ def require(condition, message):
 def main():
     socket = read("socket")
     endpoint_policy = read("endpoint_policy")
+    probe_coordinator = read("probe_coordinator")
     header = read("socket_header")
     machine_header = read("machine_header")
     socket_state_header = header + "\n" + machine_header
@@ -458,18 +460,21 @@ def main():
         "applyMtProxyPhaseAdaptiveRecipe" in socket,
         "FakeTLS failures must affect the next connection recipe, not only logs",
     )
-    recipe_start = endpoint_policy.find("bool MtProxyEndpointPolicy::failureNeedsRecipe")
-    recipe_end = endpoint_policy.find("int64_t MtProxyEndpointPolicy::cooldownMs", recipe_start)
-    recipe_body = endpoint_policy[recipe_start:recipe_end]
+    recipe_start = probe_coordinator.find("bool MtProxyProbeCoordinator::failureNeedsRecipe")
+    recipe_end = probe_coordinator.find("int32_t MtProxyProbeCoordinator::recipeLevelForProbe", recipe_start)
+    recipe_body = probe_coordinator[recipe_start:recipe_end]
     require(
         "true_client_hello_timeout" in recipe_body
+        and "faketls_server_hello_wait_timeout" in recipe_body
+        and "server_closed_after_client_hello" in recipe_body
         and "client_hello_sent_no_server_hello" in recipe_body
         and "server_hello_hmac_mismatch" in recipe_body
         and "post_handshake_no_appdata" in recipe_body,
         "phase-adaptive recipe must react only to FakeTLS/post-ClientHello semantic failures",
     )
     require(
-        "tcp_not_connected" not in recipe_body
+        'diagnostic == "tcp_not_connected"' in recipe_body
+        and "return false;" in recipe_body
         and "host_resolve_failed" not in recipe_body
         and "host_resolve_timeout" not in recipe_body
         and "mtproxy_packet_sent_no_response" not in recipe_body
@@ -500,12 +505,11 @@ def main():
     )
     require(
         "proxyEndpointResilience[result.stateKey]" in endpoint_policy
-        and "proxyEndpointResilience[recipeKey]" in endpoint_policy,
-        "failure cooldown and FakeTLS recipe must use separate state entries when the phase requires it",
+        and "mtProxyProbeStates[probeKey.key]" in probe_coordinator,
+        "failure cooldown and FakeTLS recipe must use separate endpoint-policy and probe-coordinator state entries",
     )
     require(
-        "context.fakeTls = currentSecretIsFakeTls" in failure_body
-        and "context.fakeTls && needsRecipe" in endpoint_policy,
+        "currentSecretIsFakeTls && MtProxyProbeCoordinator::failureNeedsRecipe(phase)" in failure_body,
         "recipe level must only advance for FakeTLS connections, never for dd/legacy MTProxy",
     )
     success_start = socket.find("void ConnectionSocket::recordMtProxyEndpointDataPathSuccess")
@@ -531,7 +535,7 @@ def main():
         "endpoint data-path success helper must reject non-appdata reasons before clearing endpoint cooldown/backoff",
     )
     require(
-        "MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL = 4" in endpoint_policy,
+        "MT_PROXY_PROBE_RECIPE_MAX_LEVEL = 4" in probe_coordinator,
         "phase-adaptive recipe must have four levels: no-fragment, compatibility profiles, quiet startup, then endpoint exhaustion",
     )
     recipe_apply_start = socket.find("void ConnectionSocket::applyMtProxyPhaseAdaptiveRecipe")

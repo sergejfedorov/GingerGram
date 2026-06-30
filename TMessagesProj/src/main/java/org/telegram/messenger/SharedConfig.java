@@ -451,6 +451,13 @@ public class SharedConfig {
         public String lastCheckDiagnostic = ProxyCheckDiagnostics.UNKNOWN_FAIL;
         public long lastCheckDiagnosticTime;
 
+        // Live, in-memory only (never serialized): quality + geo shown in the proxy list.
+        public long downloadSpeed;       // bytes/sec through the active connection; 0 = unknown
+        public long speedUpdateTime;     // SystemClock.elapsedRealtime() of the last speed sample
+        public String geoCountry;        // ISO-3166 alpha-2 country code; null/empty = unknown
+        public String geoOwner;          // network owner / ASN org (e.g. "LLC VK"); null/empty = unknown
+        public boolean geoResolved;      // GeoIP lookup already attempted (success or miss)
+
         public ProxyInfo(String address, int port, String username, String password, String secret) {
             this.address = address;
             this.port = port;

@@ -13,6 +13,8 @@ enum class MtProxyStartupPhase : uint8_t {
     None,
     AdmissionQueue,
     EndpointCooldown,
+    // MtProxyStartupPhase::ProbeWait keeps joiners pre-TCP while the owner probes.
+    ProbeWait,
     DnsCoalesceWait,
     TcpConnectGate,
     HostResolve,
@@ -24,6 +26,7 @@ enum class MtProxyStartupTimerKind : uint8_t {
     Admission,
     HostResolveAdmission,
     EndpointBackoff,
+    ProbeWait,
     DnsCoalesce,
     TcpConnectGate,
 };

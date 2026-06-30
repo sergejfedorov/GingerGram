@@ -22,6 +22,7 @@ import android.graphics.Canvas;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffColorFilter;
 import android.graphics.drawable.Drawable;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -46,9 +47,11 @@ import org.telegram.messenger.MessagesController;
 import org.telegram.messenger.NotificationCenter;
 import org.telegram.messenger.ProxyCheckDiagnostics;
 import org.telegram.messenger.ProxyCheckScheduler;
+import org.telegram.messenger.ProxyGeoIp;
 import org.telegram.messenger.ProxyRotationController;
 import org.telegram.messenger.R;
 import org.telegram.messenger.SharedConfig;
+import org.telegram.messenger.StatsController;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.ActionBarMenu;
@@ -488,6 +491,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
     @Override
     public void onFragmentDestroy() {
         super.onFragmentDestroy();
+        stopProxySpeedSampler();
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.proxyChangedByRotation);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.proxySettingsChanged);
         NotificationCenter.getGlobalInstance().removeObserver(this, NotificationCenter.proxyCheckDone);
@@ -1198,6 +1202,125 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         }
     }
 
+    // ----- Live download-speed sampling for the active proxy -----
+    // Reads the cumulative traffic counters and shows the delta as a throughput estimate.
+    // Passive (no extra data is sent); only the currently connected proxy is measured.
+    private static final long PROXY_SPEED_SAMPLE_INTERVAL_MS = 2000L;
+
+    private Runnable proxySpeedSampler;
+    private long proxySpeedLastBytes;
+    private long proxySpeedLastTime;
+
+    private long proxyTrafficBytes() {
+        StatsController stats = StatsController.getInstance(currentAccount);
+        long total = 0;
+        for (int networkType = 0; networkType < 3; networkType++) {
+            total += stats.getReceivedBytesCount(networkType, StatsController.TYPE_TOTAL);
+            total += stats.getSentBytesCount(networkType, StatsController.TYPE_TOTAL);
+        }
+        return total;
+    }
+
+    private void startProxySpeedSampler() {
+        stopProxySpeedSampler();
+        proxySpeedLastBytes = proxyTrafficBytes();
+        proxySpeedLastTime = SystemClock.elapsedRealtime();
+        proxySpeedSampler = new Runnable() {
+            @Override
+            public void run() {
+                sampleProxySpeedOnce();
+                AndroidUtilities.runOnUIThread(this, PROXY_SPEED_SAMPLE_INTERVAL_MS);
+            }
+        };
+        AndroidUtilities.runOnUIThread(proxySpeedSampler, PROXY_SPEED_SAMPLE_INTERVAL_MS);
+    }
+
+    private void stopProxySpeedSampler() {
+        if (proxySpeedSampler != null) {
+            AndroidUtilities.cancelRunOnUIThread(proxySpeedSampler);
+            proxySpeedSampler = null;
+        }
+    }
+
+    private void sampleProxySpeedOnce() {
+        SharedConfig.ProxyInfo active = isWssTransportSelected() ? SharedConfig.currentWssSocksProxy : SharedConfig.currentProxy;
+        long now = SystemClock.elapsedRealtime();
+        long bytes = proxyTrafficBytes();
+        long dt = now - proxySpeedLastTime;
+        long deltaBytes = Math.max(0, bytes - proxySpeedLastBytes);
+        proxySpeedLastBytes = bytes;
+        proxySpeedLastTime = now;
+        if (active == null || dt < 500) {
+            return;
+        }
+        boolean connected = currentConnectionState == ConnectionsManager.ConnectionStateConnected
+                || currentConnectionState == ConnectionsManager.ConnectionStateUpdating;
+        if (!connected) {
+            if (active.downloadSpeed != 0) {
+                active.downloadSpeed = 0;
+                updateCurrentProxyStatusCell();
+            }
+            return;
+        }
+        long bytesPerSecond = deltaBytes * 1000L / dt;
+        long previous = active.downloadSpeed;
+        if (bytesPerSecond < 1024) {
+            // Near-zero traffic (keepalive/ping only) counts as idle, so the speed segment clears.
+            active.downloadSpeed = 0;
+        } else {
+            // Light smoothing so the number does not jump wildly between samples.
+            active.downloadSpeed = previous <= 0 ? bytesPerSecond : (previous + bytesPerSecond) / 2;
+        }
+        active.speedUpdateTime = now;
+        if (active.downloadSpeed != previous) {
+            updateCurrentProxyStatusCell();
+        }
+    }
+
+    private void refreshProxyRow(SharedConfig.ProxyInfo info) {
+        if (listView == null || info == null || proxyStartRow < 0) {
+            return;
+        }
+        int idx = proxyList.indexOf(info);
+        if (idx < 0) {
+            return;
+        }
+        RecyclerView.ViewHolder holder = listView.findViewHolderForAdapterPosition(idx + proxyStartRow);
+        if (holder != null && holder.itemView instanceof TextDetailProxyCell) {
+            ((TextDetailProxyCell) holder.itemView).updateStatus();
+        }
+    }
+
+    // Looks up the proxy's country + network owner from the offline GeoIP table (once per proxy).
+    private void ensureProxyGeoResolved(SharedConfig.ProxyInfo info) {
+        if (info == null || info.geoResolved || TextUtils.isEmpty(info.address)) {
+            return;
+        }
+        info.geoResolved = true;
+        final SharedConfig.ProxyInfo target = info;
+        ProxyGeoIp.resolveAsync(info.address, result -> {
+            if (result == null) {
+                return;
+            }
+            boolean changed = false;
+            if (!TextUtils.isEmpty(result.country) && !result.country.equals(target.geoCountry)) {
+                target.geoCountry = result.country;
+                changed = true;
+            }
+            if (!TextUtils.isEmpty(result.owner) && !result.owner.equals(target.geoOwner)) {
+                target.geoOwner = result.owner;
+                changed = true;
+            }
+            if (changed) {
+                refreshProxyRow(target);
+                SharedConfig.ProxyInfo active = isWssTransportSelected() ? SharedConfig.currentWssSocksProxy : SharedConfig.currentProxy;
+                if (target == active) {
+                    updateProxyActionBarStatus();
+                }
+            }
+        });
+    }
+
     private void markConnectedCurrentProxyIfNeeded() {
         SharedConfig.ProxyInfo selectedProxy = isWssTransportSelected() ? SharedConfig.currentWssSocksProxy : SharedConfig.currentProxy;
         if ((!useProxySettings && !isWssTransportSelected()) || selectedProxy == null) {
@@ -1239,6 +1362,13 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
         super.onResume();
         markConnectedCurrentProxyIfNeeded();
         updateCurrentProxyStatusCell();
+        startProxySpeedSampler();
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        stopProxySpeedSampler();
     }
 
     @Override
@@ -1450,6 +1580,7 @@ public class ProxyListActivity extends BaseFragment implements NotificationCente
                     TextDetailProxyCell cell = (TextDetailProxyCell) holder.itemView;
                     SharedConfig.ProxyInfo info = proxyList.get(position - proxyStartRow);
                     cell.setProxy(info);
+                    ensureProxyGeoResolved(info);
                     cell.setChecked(isProxySelectedForCurrentMode(info));
                     cell.setItemSelected(selectedItems.contains(proxyList.get(position - proxyStartRow)), false);
                     boolean canReorder = !isWssTransportSelected();

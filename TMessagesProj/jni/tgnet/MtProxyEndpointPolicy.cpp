@@ -27,9 +27,6 @@ static constexpr int64_t MT_PROXY_ENDPOINT_INVALID_SECRET_COOLDOWN_JITTER_MS = 1
 static constexpr int64_t MT_PROXY_ENDPOINT_UNSUPPORTED_COOLDOWN_MIN_MS = 15 * 60 * 1000;
 static constexpr int64_t MT_PROXY_ENDPOINT_UNSUPPORTED_COOLDOWN_JITTER_MS = 15 * 60 * 1000;
 static constexpr int64_t MT_PROXY_ENDPOINT_USABLE_SUCCESS_HOLD_MS = 45 * 1000;
-static constexpr int32_t MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_LEVEL = 3;
-static constexpr int32_t MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_COUNT = 4;
-static constexpr int32_t MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL = 4;
 
 struct MtProxyEndpointResilienceState {
     int64_t lastSuccessTime = 0;
@@ -39,15 +36,7 @@ struct MtProxyEndpointResilienceState {
     int32_t handshakeFailures = 0;
     int32_t plainNoResponseFailures = 0;
     int32_t postHandshakeFailures = 0;
-    int32_t recipeLevel = 0;
-    int32_t workingRecipeLevel = 0;
-    int32_t alternateProfileIndex = 0;
-    int32_t workingAlternateProfileIndex = 0;
-    bool greaseProbePending = false;
-    bool greaseSupported = false;
-    bool greaseRejected = false;
     bool secretDomainSanitizedLogged = false;
-    std::string lastRecipeDiagnostic;
     int32_t activeTcpConnects = 0;
 };
 
@@ -161,11 +150,6 @@ static int64_t cooldownMs(MtProxyEndpointResilienceState &state, const std::stri
         cooldown = maxCooldown;
     }
     return cooldown;
-}
-
-static bool serverHelloParserVariantAllowed(const std::string &diagnostic) {
-    return diagnostic == "server_hello_hmac_mismatch"
-           || diagnostic == "unrecognized_tls_response_after_client_hello";
 }
 
 static bool failureCanBeShadowedBySuccess(const std::string &diagnostic) {
@@ -289,16 +273,6 @@ bool MtProxyEndpointPolicy::failureNeedsCooldown(const std::string &diagnostic) 
            || diagnostic == "dropped_early_after_appdata";
 }
 
-bool MtProxyEndpointPolicy::failureNeedsRecipe(const std::string &diagnostic) {
-    return diagnostic == "true_client_hello_timeout"
-           || diagnostic == "client_hello_sent_no_server_hello"
-           || diagnostic == "tls_alert_after_client_hello"
-           || diagnostic == "short_tls_response_after_client_hello"
-           || diagnostic == "unrecognized_tls_response_after_client_hello"
-           || diagnostic == "server_hello_hmac_mismatch"
-           || diagnostic == "post_handshake_no_appdata";
-}
-
 int64_t MtProxyEndpointPolicy::cooldownMs(const std::string &diagnostic, int32_t connectionPatternMode, int32_t priority) {
     MtProxyEndpointResilienceState scratch;
     return ::cooldownMs(scratch, diagnostic, connectionPatternMode, priority);
@@ -417,44 +391,17 @@ void MtProxyEndpointPolicy::storeResolvedAddress(const std::string &dnsCacheKey,
 MtProxyEndpointPolicy::FailureResult MtProxyEndpointPolicy::recordFailure(const MtProxyEndpointContext &context, const std::string &phase, int64_t now) {
     FailureResult result;
     bool needsCooldown = failureNeedsCooldown(phase);
-    bool needsRecipe = failureNeedsRecipe(phase);
-    if (!needsCooldown && !needsRecipe) {
+    if (!needsCooldown) {
         return result;
     }
     result.stateKey = stateKeyForPhase(phase, context.networkEndpointKey, context.endpointKey);
-    std::string recipeKey = context.recipeCacheKey.empty() ? context.endpointKey : context.recipeCacheKey;
-    if (!needsCooldown && needsRecipe && context.fakeTls && !recipeKey.empty()) {
-        result.stateKey = recipeKey;
-    }
     if (result.stateKey.empty()) {
         return result;
     }
     pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
-    if (context.fakeTls && needsRecipe && context.recipeUsesGrease && context.recipeIsGreaseProbe && !recipeKey.empty()) {
-        MtProxyEndpointResilienceState &recipeState = proxyEndpointResilience[recipeKey];
-        recipeState.greaseProbePending = false;
-        recipeState.greaseSupported = false;
-        recipeState.greaseRejected = true;
-        recipeState.lastRecipeDiagnostic = phase;
-        result.stateKey = recipeKey;
-        result.recipeLevel = recipeState.recipeLevel > 0 ? recipeState.recipeLevel : recipeState.workingRecipeLevel;
-        result.alternateProfileIndex = recipeState.recipeLevel > 0 ? recipeState.alternateProfileIndex : recipeState.workingAlternateProfileIndex;
-        result.cachedRecipeLevel = recipeState.workingRecipeLevel;
-        result.cachedAlternateProfileIndex = recipeState.workingAlternateProfileIndex;
-        result.recorded = true;
-        pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
-        return result;
-    }
     if (failureCanBeShadowedBySuccess(phase)) {
         result.usableSuccessRemainingMs = usableSuccessRemainingMsLocked(result.stateKey, now);
         if (result.usableSuccessRemainingMs > 0) {
-            auto stateIt = proxyEndpointResilience.find(result.stateKey);
-            if (stateIt != proxyEndpointResilience.end()) {
-                result.recipeLevel = stateIt->second.recipeLevel;
-                result.alternateProfileIndex = stateIt->second.alternateProfileIndex;
-                result.cachedRecipeLevel = stateIt->second.workingRecipeLevel;
-                result.cachedAlternateProfileIndex = stateIt->second.workingAlternateProfileIndex;
-            }
             result.shadowedByUsableSuccess = true;
             result.recorded = true;
             pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
@@ -468,43 +415,6 @@ MtProxyEndpointPolicy::FailureResult MtProxyEndpointPolicy::recordFailure(const 
             state.cooldownUntil = now + result.cooldownMs;
         }
     }
-    result.recipeLevel = state.recipeLevel;
-    result.alternateProfileIndex = state.alternateProfileIndex;
-    result.cachedRecipeLevel = state.workingRecipeLevel;
-    result.cachedAlternateProfileIndex = state.workingAlternateProfileIndex;
-    if (context.fakeTls && needsRecipe && !recipeKey.empty()) {
-        MtProxyEndpointResilienceState &recipeState = proxyEndpointResilience[recipeKey];
-        int32_t previousRecipeLevel = recipeState.recipeLevel > 0 ? recipeState.recipeLevel : recipeState.workingRecipeLevel;
-        int32_t previousAlternateProfileIndex = recipeState.recipeLevel > 0 ? recipeState.alternateProfileIndex : recipeState.workingAlternateProfileIndex;
-        if (previousRecipeLevel < MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_LEVEL) {
-            recipeState.recipeLevel = previousRecipeLevel + 1;
-            if (recipeState.recipeLevel == MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_LEVEL) {
-                recipeState.alternateProfileIndex = 0;
-            }
-        } else if (previousRecipeLevel == MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_LEVEL) {
-            if (previousAlternateProfileIndex < MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_COUNT - 1) {
-                recipeState.recipeLevel = MT_PROXY_ENDPOINT_ALTERNATE_PROFILE_LEVEL;
-                recipeState.alternateProfileIndex = previousAlternateProfileIndex + 1;
-            } else if (serverHelloParserVariantAllowed(phase)) {
-                recipeState.recipeLevel = MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL;
-                recipeState.alternateProfileIndex = previousAlternateProfileIndex;
-            } else {
-                recipeState.recipeLevel = MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL;
-                recipeState.alternateProfileIndex = previousAlternateProfileIndex;
-                result.recipeExhausted = true;
-            }
-        } else if (previousRecipeLevel >= MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL) {
-            recipeState.recipeLevel = MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL;
-            result.recipeExhausted = true;
-        } else {
-            recipeState.recipeLevel = previousRecipeLevel + 1;
-        }
-        recipeState.lastRecipeDiagnostic = phase;
-        result.recipeLevel = recipeState.recipeLevel;
-        result.alternateProfileIndex = recipeState.alternateProfileIndex;
-        result.cachedRecipeLevel = recipeState.workingRecipeLevel;
-        result.cachedAlternateProfileIndex = recipeState.workingAlternateProfileIndex;
-    }
     pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
     result.recorded = true;
     return result;
@@ -515,10 +425,6 @@ int64_t MtProxyEndpointPolicy::freshDataPathSuccessRemainingMs(const MtProxyEndp
     pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
     remainingMs = std::max(remainingMs, usableSuccessRemainingMsLocked(context.networkEndpointKey, now));
     remainingMs = std::max(remainingMs, usableSuccessRemainingMsLocked(context.endpointKey, now));
-    std::string recipeKey = context.recipeCacheKey.empty() ? context.endpointKey : context.recipeCacheKey;
-    if (context.fakeTls && !recipeKey.empty()) {
-        remainingMs = std::max(remainingMs, usableSuccessRemainingMsLocked(recipeKey, now));
-    }
     pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
     return remainingMs;
 }
@@ -540,18 +446,6 @@ void MtProxyEndpointPolicy::recordHandshakeOk(const MtProxyEndpointContext &cont
             state.cooldownUntil = 0;
         }
     }
-    std::string recipeKey = context.recipeCacheKey.empty() ? context.endpointKey : context.recipeCacheKey;
-    if (context.fakeTls && !recipeKey.empty()) {
-        MtProxyEndpointResilienceState &recipeState = proxyEndpointResilience[recipeKey];
-        int32_t recipeLevel = recipeState.recipeLevel;
-        recipeState.workingRecipeLevel = recipeLevel;
-        recipeState.workingAlternateProfileIndex = recipeState.alternateProfileIndex;
-        if (context.recipeUsesGrease) {
-            recipeState.greaseProbePending = false;
-            recipeState.greaseSupported = true;
-            recipeState.greaseRejected = false;
-        }
-    }
     pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
 }
 
@@ -566,23 +460,6 @@ MtProxyEndpointPolicy::DataPathSuccessResult MtProxyEndpointPolicy::recordDataPa
     resetStateForKey(context.networkEndpointKey, now, false);
     if (!context.endpointKey.empty()) {
         resetStateForKey(context.endpointKey, now, false);
-    }
-    std::string recipeKey = context.recipeCacheKey.empty() ? context.endpointKey : context.recipeCacheKey;
-    if (context.fakeTls && !recipeKey.empty()) {
-        MtProxyEndpointResilienceState &recipeState = proxyEndpointResilience[recipeKey];
-        int32_t recipeLevel = recipeState.recipeLevel;
-        recipeState.workingRecipeLevel = recipeLevel;
-        recipeState.workingAlternateProfileIndex = recipeState.alternateProfileIndex;
-        result.cachedRecipeLevel = recipeState.workingRecipeLevel;
-        result.cachedRecipe = result.cachedRecipeLevel > 0;
-        if (context.recipeUsesGrease) {
-            recipeState.greaseProbePending = false;
-            recipeState.greaseSupported = true;
-            recipeState.greaseRejected = false;
-        } else if (!recipeState.greaseSupported && !recipeState.greaseRejected) {
-            recipeState.greaseProbePending = true;
-        }
-        resetStateForKey(recipeKey, now, true);
     }
     pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
     result.accepted = true;
@@ -604,56 +481,6 @@ bool MtProxyEndpointPolicy::recordSecretDomainSanitized(const std::string &endpo
     return shouldLog;
 }
 
-MtProxyEndpointPolicy::GreaseProbeResult MtProxyEndpointPolicy::readGreaseProbeState(const std::string &recipeCacheKey) {
-    GreaseProbeResult result;
-    if (recipeCacheKey.empty()) {
-        return result;
-    }
-    pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
-    auto it = proxyEndpointResilience.find(recipeCacheKey);
-    if (it != proxyEndpointResilience.end()) {
-        result.probe = it->second.greaseProbePending && !it->second.greaseRejected;
-        result.supported = it->second.greaseSupported;
-        result.rejected = it->second.greaseRejected;
-        result.useGrease = result.supported || result.probe;
-    }
-    pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
-    return result;
-}
-
-int32_t MtProxyEndpointPolicy::recipeLevelForEndpoint(const std::string &endpointKey) {
-    int32_t recipeLevel = 0;
-    pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
-    auto it = proxyEndpointResilience.find(endpointKey);
-    if (it != proxyEndpointResilience.end()) {
-        recipeLevel = it->second.recipeLevel > 0 ? it->second.recipeLevel : it->second.workingRecipeLevel;
-    }
-    pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
-    return recipeLevel;
-}
-
-int32_t MtProxyEndpointPolicy::recipeAlternateProfileIndexForEndpoint(const std::string &endpointKey) {
-    int32_t alternateProfileIndex = 0;
-    pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
-    auto it = proxyEndpointResilience.find(endpointKey);
-    if (it != proxyEndpointResilience.end()) {
-        alternateProfileIndex = it->second.recipeLevel > 0 ? it->second.alternateProfileIndex : it->second.workingAlternateProfileIndex;
-    }
-    pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
-    return alternateProfileIndex;
-}
-
-std::string MtProxyEndpointPolicy::lastRecipeDiagnosticForEndpoint(const std::string &endpointKey) {
-    std::string diagnostic;
-    pthread_mutex_lock(&mtProxyEndpointPolicyMutex);
-    auto it = proxyEndpointResilience.find(endpointKey);
-    if (it != proxyEndpointResilience.end()) {
-        diagnostic = it->second.lastRecipeDiagnostic;
-    }
-    pthread_mutex_unlock(&mtProxyEndpointPolicyMutex);
-    return diagnostic;
-}
-
 void MtProxyEndpointPolicy::resetStateForKey(const std::string &key, int64_t now, bool resetRecipe) {
     if (key.empty()) {
         return;
@@ -667,8 +494,5 @@ void MtProxyEndpointPolicy::resetStateForKey(const std::string &key, int64_t now
         state.handshakeFailures = 0;
         state.plainNoResponseFailures = 0;
         state.postHandshakeFailures = 0;
-        state.recipeLevel = 0;
-        state.alternateProfileIndex = state.workingAlternateProfileIndex;
-        state.lastRecipeDiagnostic.clear();
     }
 }

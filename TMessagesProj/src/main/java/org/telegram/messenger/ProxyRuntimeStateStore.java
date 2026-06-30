@@ -127,7 +127,7 @@ public final class ProxyRuntimeStateStore {
         }
         ProxyHealthStore.EndpointFailureResult failure = ProxyHealthStore.rememberLiveFailure(currentProxy, event.phase, event.timestamp);
         if (ProxyPhasePolicy.canRotate(event.phase) && failure.rotationAllowed) {
-            return quarantineAndCancelEndpoint(currentProxy, event.phase, event.endpointKey, event.timestamp, event.source, event.origin, event.account, visibleChanged);
+            return quarantineAndCancelEndpoint(currentProxy, event.phase, event.endpointKey, event.probeKey, event.timestamp, event.source, event.origin, event.account, visibleChanged);
         }
         if (ProxyPhasePolicy.canRotate(event.phase)) {
             logControl("decision=held_by_failure_hysteresis source=" + event.source + " origin=" + event.origin.wireName + " account=" + event.account + " phase=" + event.phase + " endpoint=" + event.endpointKey + " failures=" + failure.rotationFailures);
@@ -148,21 +148,22 @@ public final class ProxyRuntimeStateStore {
                 && (ProxyHealthStore.hasFreshUsableSuccess(proxyInfo, now) || isCurrentProxyUsable(proxyInfo, now));
     }
 
-    private static Decision quarantineAndCancelEndpoint(SharedConfig.ProxyInfo proxyInfo, String phase, String endpointKey, long now, String source, ProxyConnectionEvent.Origin origin, int account, boolean visibleChanged) {
+    private static Decision quarantineAndCancelEndpoint(SharedConfig.ProxyInfo proxyInfo, String phase, String endpointKey, String probeKey, long now, String source, ProxyConnectionEvent.Origin origin, int account, boolean visibleChanged) {
         String normalized = ProxyCheckDiagnostics.normalize(phase);
         String targetEndpointKey = endpointKey == null || endpointKey.length() == 0 ? ProxyEndpointKey.liveStage(proxyInfo) : endpointKey;
+        String targetProbeKey = probeKey == null ? "" : probeKey;
         ProxyHealthStore.quarantineExactEndpoint(proxyInfo, normalized, now);
         ProxyHealthStore.ignoreEndpointTelemetry(targetEndpointKey, now, normalized);
         int proxyCheckCancelled = ProxyCheckScheduler.cancelEndpointAttempts(targetEndpointKey);
         String originName = origin == null ? ProxyConnectionEvent.Origin.ACTIVE_PROXY.wireName : origin.wireName;
         boolean oneShotTerminal = ProxyPhasePolicy.isOneShotTerminal(normalized);
         String decision = oneShotTerminal ? "terminal_quarantine" : "rotation_trigger";
-        int nativeCancelled = ConnectionsManager.cancelProxyEndpointAttempts(targetEndpointKey, decision);
-        logControl("decision=cancel_endpoint_attempts source=" + source + " origin=" + originName + " account=" + account + " phase=" + normalized + " endpoint=" + targetEndpointKey + " proxy_check_cancelled=" + proxyCheckCancelled + " native_cancelled=" + nativeCancelled);
+        int nativeCancelled = ConnectionsManager.cancelProxyEndpointAttempts(targetEndpointKey, targetProbeKey, decision);
+        logControl("decision=cancel_endpoint_attempts source=" + source + " origin=" + originName + " account=" + account + " phase=" + normalized + " endpoint=" + targetEndpointKey + " probe=" + targetProbeKey + " proxy_check_cancelled=" + proxyCheckCancelled + " native_cancelled=" + nativeCancelled);
         if (oneShotTerminal) {
-            logControl("decision=terminal_quarantine source=" + source + " origin=" + originName + " account=" + account + " phase=" + normalized + " endpoint=" + targetEndpointKey);
+            logControl("decision=terminal_quarantine source=" + source + " origin=" + originName + " account=" + account + " phase=" + normalized + " endpoint=" + targetEndpointKey + " probe=" + targetProbeKey);
         } else {
-            logControl("decision=rotation_trigger source=" + source + " origin=" + originName + " account=" + account + " phase=" + normalized + " endpoint=" + targetEndpointKey);
+            logControl("decision=rotation_trigger source=" + source + " origin=" + originName + " account=" + account + " phase=" + normalized + " endpoint=" + targetEndpointKey + " probe=" + targetProbeKey);
         }
         return new Decision(decision, normalized, targetEndpointKey, true, visibleChanged, false);
     }
@@ -454,7 +455,7 @@ public final class ProxyRuntimeStateStore {
         }
         ProxyHealthStore.EndpointFailureResult failure = ProxyHealthStore.rememberLiveFailure(proxyInfo, normalized, now);
         if (ProxyPhasePolicy.canRotate(normalized) && failure.rotationAllowed) {
-            quarantineAndCancelEndpoint(proxyInfo, normalized, ProxyEndpointKey.liveStage(proxyInfo), now, "live_failure", ProxyConnectionEvent.Origin.ACTIVE_PROXY, UserConfig.selectedAccount, false);
+            quarantineAndCancelEndpoint(proxyInfo, normalized, ProxyEndpointKey.liveStage(proxyInfo), "", now, "live_failure", ProxyConnectionEvent.Origin.ACTIVE_PROXY, UserConfig.selectedAccount, false);
         } else if (ProxyPhasePolicy.canRotate(normalized)) {
             logControl("decision=held_by_failure_hysteresis source=live_failure phase=" + normalized + " endpoint=" + ProxyEndpointKey.liveStage(proxyInfo) + " failures=" + failure.rotationFailures);
         }
@@ -596,7 +597,7 @@ public final class ProxyRuntimeStateStore {
                 : ProxyHealthStore.EndpointFailureResult.noop(normalized);
         boolean result = candidate && failure.rotationAllowed;
         if (result) {
-            quarantineAndCancelEndpoint(currentProxy, normalized, endpointKey, now, "fallback", ProxyConnectionEvent.Origin.ACTIVE_PROXY, account, false);
+            quarantineAndCancelEndpoint(currentProxy, normalized, endpointKey, "", now, "fallback", ProxyConnectionEvent.Origin.ACTIVE_PROXY, account, false);
             logRotation("decision=trigger phase=" + normalized + " endpoint=" + endpointKey + " count=" + failure.rotationFailures + " required=" + ProxyHealthStore.punitiveFailuresToRotate());
         } else if (candidate) {
             logRotation("decision=waiting_hysteresis phase=" + normalized + " endpoint=" + endpointKey + " count=" + failure.rotationFailures + " required=" + ProxyHealthStore.punitiveFailuresToRotate());

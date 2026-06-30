@@ -82,7 +82,7 @@ public:
     void applyDnsConfig(NativeByteBuffer *buffer, std::string phone, int32_t date);
     int64_t checkProxy(std::string address, uint16_t port, std::string username, std::string password, std::string secret, const MtProxyOptions &options, onRequestTimeFunc requestTimeFunc, jobject ptr1);
     void cancelProxyCheck(int64_t pingId);
-    void cancelProxyEndpointAttempts(std::string endpointKey, std::string reason);
+    void cancelProxyEndpointAttempts(std::string endpointKey, std::string probeKey, std::string reason);
 
 #ifdef ANDROID
     void sendRequest(TLObject *object, onCompleteFunc onComplete, onQuickAckFunc onQuickAck, onWriteToSocketFunc onWriteToSocket, onRequestClearFunc onClear, uint32_t flags, uint32_t datacenterId, ConnectionType connectionType, bool immediate, int32_t requestToken);

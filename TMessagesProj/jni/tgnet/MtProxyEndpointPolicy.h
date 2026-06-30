@@ -19,9 +19,6 @@ public:
         std::string networkEndpointKey;
         std::string dnsCacheKey;
         bool fakeTls = false;
-        bool recipeUsesGrease = false;
-        bool recipeIsGreaseProbe = false;
-        bool classicFallbackAllowed = false;
         int32_t connectionPatternMode = MT_PROXY_CONNECTION_PATTERN_OFF;
         int32_t priority = 0;
     };
@@ -47,27 +44,13 @@ public:
     struct FailureResult {
         bool recorded = false;
         bool shadowedByUsableSuccess = false;
-        bool recipeExhausted = false;
         std::string stateKey;
         int64_t cooldownMs = 0;
         int64_t usableSuccessRemainingMs = 0;
-        int32_t recipeLevel = 0;
-        int32_t alternateProfileIndex = 0;
-        int32_t cachedRecipeLevel = 0;
-        int32_t cachedAlternateProfileIndex = 0;
     };
 
     struct DataPathSuccessResult {
         bool accepted = false;
-        bool cachedRecipe = false;
-        int32_t cachedRecipeLevel = 0;
-    };
-
-    struct GreaseProbeResult {
-        bool useGrease = false;
-        bool probe = false;
-        bool supported = false;
-        bool rejected = false;
     };
 
     static bool extractSslipIpv4Address(const std::string &host, struct in_addr *address, std::string *literalAddress);
@@ -77,7 +60,6 @@ public:
     static std::string dnsCacheKeyFor(const std::string &host, uint16_t port);
     static std::string stateKeyForPhase(const std::string &phase, const std::string &networkEndpointKey, const std::string &endpointKey);
     static bool failureNeedsCooldown(const std::string &diagnostic);
-    static bool failureNeedsRecipe(const std::string &diagnostic);
     static int64_t cooldownMs(const std::string &diagnostic, int32_t connectionPatternMode, int32_t priority);
     static CooldownResult readCooldown(const MtProxyEndpointContext &context, int64_t now);
     static TcpConnectGateResult beginTcpConnect(const std::string &networkEndpointKey, bool wasReady);
@@ -90,10 +72,6 @@ public:
     static void recordHandshakeOk(const MtProxyEndpointContext &context, const char *reason);
     static DataPathSuccessResult recordDataPathSuccess(const MtProxyEndpointContext &context, const char *reason, int64_t now);
     static bool recordSecretDomainSanitized(const std::string &endpointKey);
-    static GreaseProbeResult readGreaseProbeState(const std::string &recipeCacheKey);
-    static int32_t recipeLevelForEndpoint(const std::string &endpointKey);
-    static int32_t recipeAlternateProfileIndexForEndpoint(const std::string &endpointKey);
-    static std::string lastRecipeDiagnosticForEndpoint(const std::string &endpointKey);
     static void resetStateForKey(const std::string &key, int64_t now, bool resetRecipe);
 };
 

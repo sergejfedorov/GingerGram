@@ -229,7 +229,7 @@ def main() -> None:
     )
     require(
         "final String endpointKey" in text("connections_java")
-        and "ProxyConnectionEvent.nativeStage(currentAccount, diagnostic, endpointKey, origin)" in text("connections_java")
+        and "ProxyConnectionEvent.nativeStage(currentAccount, diagnostic, endpointKey, probeKey, origin)" in text("connections_java")
         and "ProxyEndpointKey.matchesLiveStage(currentProxy, event.endpointKey)" in store_text,
         "native proxy live stages from stale endpoint/secret keys must not overwrite the currently selected proxy diagnostic",
     )
@@ -245,9 +245,10 @@ def main() -> None:
     )
     require(
         "onProxyConnectionStageChanged" in text("defines")
+        and "probeKey" in text("defines")
         and "jclass_ConnectionsManager_onProxyConnectionStageChanged" in text("wrapper")
-        and 'GetStaticMethodID(jclass_ConnectionsManager, "onProxyConnectionStageChanged", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V")' in text("wrapper"),
-        "JNI bridge must forward native proxy live stages with an endpoint key to ConnectionsManager",
+        and 'GetStaticMethodID(jclass_ConnectionsManager, "onProxyConnectionStageChanged", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V")' in text("wrapper"),
+        "JNI bridge must forward native proxy live stages with endpoint and probe keys to ConnectionsManager",
     )
     require(
         "publishProxyConnectionStage" in text("socket_h")

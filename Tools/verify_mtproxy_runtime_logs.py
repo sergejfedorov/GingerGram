@@ -34,6 +34,7 @@ LIVE_VISIBLE_OVERWRITE_PHASES = {
     "dns_cache_hit",
     "dns_cache_store",
     "dns_coalesce_wait",
+    "mtproxy_probe_wait",
     "connect_start",
     "socket_connect_start",
     "tcp_connect_gate",
@@ -54,6 +55,8 @@ FRESH_USABLE_FAILURE_OVERWRITE_PHASES = {
     "tcp_connected_no_pong",
     "network_block_suspected",
     "true_client_hello_timeout",
+    "faketls_server_hello_wait_timeout",
+    "server_closed_after_client_hello",
     "client_hello_sent_no_server_hello",
     "tls_alert_after_client_hello",
     "short_tls_response_after_client_hello",
@@ -146,6 +149,10 @@ def same_proxy_endpoint(left: str, right: str) -> bool:
     return bool(left and right and (left == right or left.startswith(right) or right.startswith(left)))
 
 
+def same_proxy_probe(left: str, right: str) -> bool:
+    return not left or not right or left == right
+
+
 def endpoint_host(endpoint: str) -> str:
     if not endpoint:
         return ""
@@ -208,15 +215,16 @@ def verify_visible_success_hold(lines: list[str]) -> list[str]:
 
 def verify_one_shot_terminal(lines: list[str]) -> list[str]:
     failures: list[str] = []
-    terminal_seen: list[tuple[int | None, str, str, str]] = []
-    terminal_quarantine_seen: set[tuple[str, str]] = set()
-    cancellation_seen: set[tuple[str, str]] = set()
+    terminal_seen: list[tuple[int | None, str, str, str, str]] = []
+    terminal_quarantine_seen: set[tuple[str, str, str]] = set()
+    cancellation_seen: set[tuple[str, str, str]] = set()
     for line in lines:
         decision = proxy_control_decision(line)
         phase = line_field(line, "phase")
         endpoint = line_field(line, "endpoint")
+        probeKey = line_field(line, "probe")
         if phase in TERMINAL_ONE_SHOT_PHASES:
-            terminal_seen.append((line_time_ms(line), phase, endpoint, line))
+            terminal_seen.append((line_time_ms(line), phase, endpoint, probeKey, line))
         if decision == "held_by_failure_hysteresis" and phase in TERMINAL_ONE_SHOT_PHASES:
             failures.append(f"one-shot terminal phase must not wait in failure hysteresis: {line}")
         if "proxy_rotation decision=waiting_hysteresis" in line and phase in TERMINAL_ONE_SHOT_PHASES:
@@ -224,17 +232,52 @@ def verify_one_shot_terminal(lines: list[str]) -> list[str]:
         if decision == "backoff" and phase in TERMINAL_ONE_SHOT_PHASES and "rotation_allowed=false" in line:
             failures.append(f"one-shot terminal backoff must allow immediate quarantine: {line}")
         if decision == "terminal_quarantine" and phase in TERMINAL_ONE_SHOT_PHASES:
-            terminal_quarantine_seen.add((phase, endpoint))
+            terminal_quarantine_seen.add((phase, endpoint, probeKey))
         if "cancel_endpoint_attempts" in line and phase in TERMINAL_ONE_SHOT_PHASES:
-            cancellation_seen.add((phase, endpoint))
+            cancellation_seen.add((phase, endpoint, probeKey))
 
-    for _, phase, endpoint, line in terminal_seen:
+    for _, phase, endpoint, probeKey, line in terminal_seen:
         if not endpoint:
             continue
-        if not any(item_phase == phase and same_proxy_endpoint(item_endpoint, endpoint) for item_phase, item_endpoint in terminal_quarantine_seen):
+        if not any(
+            item_phase == phase
+            and same_proxy_endpoint(item_endpoint, endpoint)
+            and same_proxy_probe(item_probeKey, probeKey)
+            for item_phase, item_endpoint, item_probeKey in terminal_quarantine_seen
+        ):
             failures.append(f"one-shot terminal phase missing terminal_quarantine: {line}")
-        if not any(item_phase == phase and same_proxy_endpoint(item_endpoint, endpoint) for item_phase, item_endpoint in cancellation_seen):
+        if not any(
+            item_phase == phase
+            and same_proxy_endpoint(item_endpoint, endpoint)
+            and same_proxy_probe(item_probeKey, probeKey)
+            for item_phase, item_endpoint, item_probeKey in cancellation_seen
+        ):
             failures.append(f"one-shot terminal phase missing cancel_endpoint_attempts: {line}")
+    return failures
+
+
+def verify_server_hello_diagnostics(lines: list[str]) -> list[str]:
+    failures: list[str] = []
+    client_hello_connections: set[str] = set()
+    eof_after_client_hello: dict[str, str] = {}
+    for line in lines:
+        connection = line_connection(line)
+        if not connection:
+            continue
+        if "client_hello_sent" in line:
+            client_hello_connections.add(connection)
+            continue
+        if "recv_eof" in line and "proxy_state=11" in line and connection in client_hello_connections:
+            eof_after_client_hello[connection] = line
+            continue
+        if "close_diagnostic" not in line or "phase=true_client_hello_timeout" not in line:
+            continue
+        if connection not in eof_after_client_hello:
+            continue
+        failures.append(
+            "EOF after ClientHello must be reported as server_closed_after_client_hello, "
+            f"not true_client_hello_timeout: {line} after {eof_after_client_hello[connection]}"
+        )
     return failures
 
 
@@ -593,6 +636,7 @@ def verify_lines(lines: list[str]) -> list[str]:
 
     failures.extend(verify_visible_success_hold(lines))
     failures.extend(verify_one_shot_terminal(lines))
+    failures.extend(verify_server_hello_diagnostics(lines))
     failures.extend(verify_shadowed_socket_backoff(lines))
     failures.extend(verify_usable_hold_anchor(lines))
     failures.extend(verify_dns_visible_debounce(lines))

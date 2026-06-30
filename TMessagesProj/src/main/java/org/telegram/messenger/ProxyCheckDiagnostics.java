@@ -19,6 +19,8 @@ public class ProxyCheckDiagnostics {
     public static final String DNS_COALESCE_WAIT = "dns_coalesce_wait";
     public static final String DNS_CACHE_HIT = "dns_cache_hit";
     public static final String DNS_CACHE_STORE = "dns_cache_store";
+    public static final String MTPROXY_PROBE_WAIT = "mtproxy_probe_wait";
+    public static final String MTPROXY_PROBE_WAIT_TIMEOUT = "mtproxy_probe_wait_timeout";
     public static final String PHASE_ADAPTIVE_RECIPE = "phase_adaptive_recipe";
     public static final String SECRET_DOMAIN_SANITIZED = "secret_domain_sanitized";
     public static final String HOST_RESOLVE_START = "host_resolve_start";
@@ -51,6 +53,8 @@ public class ProxyCheckDiagnostics {
     public static final String SECRET_PARSE_INVALID_DOMAIN_CONTROL_CHAR = "secret_parse_invalid_domain_control_char";
     public static final String SECRET_PARSE_INVALID_DOMAIN = "secret_parse_invalid_domain";
     public static final String TRUE_CLIENT_HELLO_TIMEOUT = "true_client_hello_timeout";
+    public static final String FAKETLS_SERVER_HELLO_WAIT_TIMEOUT = "faketls_server_hello_wait_timeout";
+    public static final String SERVER_CLOSED_AFTER_CLIENT_HELLO = "server_closed_after_client_hello";
     public static final String CLIENT_HELLO_SENT_NO_SERVER_HELLO = "client_hello_sent_no_server_hello";
     public static final String TLS_ALERT_AFTER_CLIENT_HELLO = "tls_alert_after_client_hello";
     public static final String SHORT_TLS_RESPONSE_AFTER_CLIENT_HELLO = "short_tls_response_after_client_hello";
@@ -80,6 +84,8 @@ public class ProxyCheckDiagnostics {
             case DNS_COALESCE_WAIT:
             case DNS_CACHE_HIT:
             case DNS_CACHE_STORE:
+            case MTPROXY_PROBE_WAIT:
+            case MTPROXY_PROBE_WAIT_TIMEOUT:
             case PHASE_ADAPTIVE_RECIPE:
             case SECRET_DOMAIN_SANITIZED:
             case HOST_RESOLVE_START:
@@ -112,6 +118,8 @@ public class ProxyCheckDiagnostics {
             case SECRET_PARSE_INVALID_DOMAIN_CONTROL_CHAR:
             case SECRET_PARSE_INVALID_DOMAIN:
             case TRUE_CLIENT_HELLO_TIMEOUT:
+            case FAKETLS_SERVER_HELLO_WAIT_TIMEOUT:
+            case SERVER_CLOSED_AFTER_CLIENT_HELLO:
             case CLIENT_HELLO_SENT_NO_SERVER_HELLO:
             case TLS_ALERT_AFTER_CLIENT_HELLO:
             case SHORT_TLS_RESPONSE_AFTER_CLIENT_HELLO:
@@ -241,6 +249,51 @@ public class ProxyCheckDiagnostics {
         return live > 0 ? live : 0;
     }
 
+    private static final long SPEED_STALE_MS = 15 * 1000L;
+
+    // Appends " · <flag> <owner>" and (for the active proxy) " · <speed>" to the base status line.
+    private static String appendProxyExtras(String base, SharedConfig.ProxyInfo proxyInfo, boolean connected) {
+        StringBuilder sb = new StringBuilder(base);
+        String geo = geoSuffix(proxyInfo);
+        if (!TextUtils.isEmpty(geo)) {
+            sb.append(" · ").append(geo);
+        }
+        if (connected) {
+            String speed = speedSuffix(proxyInfo);
+            if (!TextUtils.isEmpty(speed)) {
+                sb.append(" · ").append(speed);
+            }
+        }
+        return sb.toString();
+    }
+
+    // "<flag> <owner>", or just one of them, or "" when nothing is known yet.
+    public static String geoSuffix(SharedConfig.ProxyInfo proxyInfo) {
+        if (proxyInfo == null) {
+            return "";
+        }
+        String flag = TextUtils.isEmpty(proxyInfo.geoCountry) ? "" : LocationController.countryCodeToEmoji(proxyInfo.geoCountry);
+        String owner = proxyInfo.geoOwner == null ? "" : proxyInfo.geoOwner.trim();
+        if (!TextUtils.isEmpty(flag) && !TextUtils.isEmpty(owner)) {
+            return flag + " " + owner;
+        }
+        if (!TextUtils.isEmpty(owner)) {
+            return owner;
+        }
+        return flag;
+    }
+
+    private static String speedSuffix(SharedConfig.ProxyInfo proxyInfo) {
+        if (proxyInfo == null || proxyInfo.downloadSpeed <= 0) {
+            return "";
+        }
+        if (proxyInfo.speedUpdateTime != 0
+                && android.os.SystemClock.elapsedRealtime() - proxyInfo.speedUpdateTime > SPEED_STALE_MS) {
+            return "";
+        }
+        return AndroidUtilities.formatFileSize(proxyInfo.downloadSpeed) + "/s";
+    }
+
     public static String statusText(SharedConfig.ProxyInfo proxyInfo, boolean currentProxyEnabled, int currentConnectionState) {
         if (proxyInfo == null) {
             return LocaleController.getString(R.string.ProxyStatusUnknownFail);
@@ -251,10 +304,10 @@ public class ProxyCheckDiagnostics {
             }
             if (currentConnectionState == ConnectionsManager.ConnectionStateConnected || currentConnectionState == ConnectionsManager.ConnectionStateUpdating) {
                 long ping = connectedPingMs(proxyInfo);
-                if (ping != 0) {
-                    return LocaleController.getString(R.string.Connected) + ", " + LocaleController.formatString("Ping", R.string.Ping, ping);
-                }
-                return LocaleController.getString(R.string.Connected);
+                String base = ping != 0
+                        ? LocaleController.getString(R.string.Connected) + ", " + LocaleController.formatString("Ping", R.string.Ping, ping)
+                        : LocaleController.getString(R.string.Connected);
+                return appendProxyExtras(base, proxyInfo, true);
             }
             if (hasFreshLivePhase(proxyInfo)) {
                 return shortDiagnosticText(proxyInfo.lastCheckDiagnostic);
@@ -277,10 +330,10 @@ public class ProxyCheckDiagnostics {
             return shortDiagnosticText(proxyInfo.lastCheckDiagnostic);
         }
         if (proxyInfo.available && ProxyCheckScheduler.isFresh(proxyInfo)) {
-            if (proxyInfo.ping != 0) {
-                return LocaleController.getString(R.string.Available) + ", " + LocaleController.formatString("Ping", R.string.Ping, proxyInfo.ping);
-            }
-            return LocaleController.getString(R.string.Available);
+            String base = proxyInfo.ping != 0
+                    ? LocaleController.getString(R.string.Available) + ", " + LocaleController.formatString("Ping", R.string.Ping, proxyInfo.ping)
+                    : LocaleController.getString(R.string.Available);
+            return appendProxyExtras(base, proxyInfo, false);
         }
         return LocaleController.getString(R.string.ProxyStatusUnchecked);
     }

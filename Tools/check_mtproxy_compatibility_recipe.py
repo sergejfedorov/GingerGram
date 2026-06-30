@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOCKET = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocket.cpp"
 ENDPOINT_POLICY = ROOT / "TMessagesProj/jni/tgnet/MtProxyEndpointPolicy.cpp"
 ENDPOINT_POLICY_H = ROOT / "TMessagesProj/jni/tgnet/MtProxyEndpointPolicy.h"
+PROBE_COORDINATOR = ROOT / "TMessagesProj/jni/tgnet/MtProxyProbeCoordinator.cpp"
+PROBE_COORDINATOR_H = ROOT / "TMessagesProj/jni/tgnet/MtProxyProbeCoordinator.h"
 ADAPTIVE_POLICY = ROOT / "TMessagesProj/jni/tgnet/MtProxyAdaptivePolicy.cpp"
 ADAPTIVE_POLICY_H = ROOT / "TMessagesProj/jni/tgnet/MtProxyAdaptivePolicy.h"
 STATE_MACHINE_H = ROOT / "TMessagesProj/jni/tgnet/ConnectionSocketStateMachine.h"
@@ -26,11 +28,17 @@ STRINGS_RU = ROOT / "TMessagesProj/src/main/res/values-ru/strings.xml"
 
 RECIPE_FAILURES = {
     "true_client_hello_timeout",
+    "faketls_server_hello_wait_timeout",
+    "server_closed_after_client_hello",
     "client_hello_sent_no_server_hello",
     "tls_alert_after_client_hello",
     "short_tls_response_after_client_hello",
     "unrecognized_tls_response_after_client_hello",
     "server_hello_hmac_mismatch",
+}
+LEGACY_OR_JAVA_ONLY_RECIPE_FAILURES = {
+    "true_client_hello_timeout",
+    "client_hello_sent_no_server_hello",
 }
 
 
@@ -56,6 +64,8 @@ def main() -> int:
     socket = read(SOCKET)
     endpoint_policy = read(ENDPOINT_POLICY)
     endpoint_policy_h = read(ENDPOINT_POLICY_H)
+    probe_coordinator = read(PROBE_COORDINATOR)
+    probe_coordinator_h = read(PROBE_COORDINATOR_H)
     adaptive_policy = read(ADAPTIVE_POLICY)
     adaptive_policy_h = read(ADAPTIVE_POLICY_H)
     state_machine_h = read(STATE_MACHINE_H)
@@ -72,7 +82,7 @@ def main() -> int:
 
     for phase in RECIPE_FAILURES | {"unsupported_for_current_client", "secret_parse_invalid_domain_control_char", "secret_parse_invalid_domain"}:
         require(phase in java_phase_names(), f"phase contract must expose Java phase {phase}", failures)
-        if phase != "client_hello_sent_no_server_hello":
+        if phase not in LEGACY_OR_JAVA_ONLY_RECIPE_FAILURES:
             require(phase in native_phase_names(), f"phase contract must expose native phase {phase}", failures)
         require(phase.upper() in diagnostics, f"ProxyCheckDiagnostics must define {phase}", failures)
         require(phase in analyzer, f"analyzer must know {phase}", failures)
@@ -107,17 +117,18 @@ def main() -> int:
         failures,
     )
     require(
-        'proxyCheckDiagnostic = "true_client_hello_timeout"' in socket
+        'proxyCheckDiagnostic = "faketls_server_hello_wait_timeout"' in socket
+        and 'proxyCheckDiagnostic = "server_closed_after_client_hello"' in socket
         and "bytesRead == 0" in block(socket, "void ConnectionSocket::markProxyHandshakeFreezeIfNeeded", "void ConnectionSocket::markProxyServerHelloHmacTimeoutIfNeeded"),
-        "true_client_hello_timeout must be reserved for true no-bytes timeout after ClientHello",
+        "ServerHello wait must split no-byte deadline from EOF-after-ClientHello instead of publishing true_client_hello_timeout",
         failures,
     )
 
-    recipe_body = block(endpoint_policy, "bool MtProxyEndpointPolicy::failureNeedsRecipe", "int64_t MtProxyEndpointPolicy::cooldownMs")
-    cooldown_body = block(endpoint_policy, "bool MtProxyEndpointPolicy::failureNeedsCooldown", "bool MtProxyEndpointPolicy::failureNeedsRecipe")
+    recipe_body = block(probe_coordinator, "bool MtProxyProbeCoordinator::failureNeedsRecipe", "int32_t MtProxyProbeCoordinator::recipeLevelForProbe")
+    cooldown_body = block(endpoint_policy, "bool MtProxyEndpointPolicy::failureNeedsCooldown", "int64_t MtProxyEndpointPolicy::cooldownMs")
     for phase in RECIPE_FAILURES:
-        require(phase in recipe_body, f"native endpoint policy must treat {phase} as a recipe failure", failures)
-        if phase not in {"true_client_hello_timeout", "client_hello_sent_no_server_hello"}:
+        require(phase in recipe_body, f"native probe coordinator must treat {phase} as a recipe failure", failures)
+        if phase not in LEGACY_OR_JAVA_ONLY_RECIPE_FAILURES:
             require(phase not in cooldown_body, f"{phase} must not cooldown/quarantine the endpoint directly", failures)
     for phase in ("secret_parse_invalid_domain_control_char", "secret_parse_invalid_domain"):
         require(phase in cooldown_body, f"native endpoint policy must quarantine invalid secret phase {phase}", failures)
@@ -128,10 +139,10 @@ def main() -> int:
         failures,
     )
     require(
-        "recipeExhausted" in endpoint_policy_h
-        and "workingRecipeLevel" in endpoint_policy
-        and "cachedRecipeLevel" in endpoint_policy,
-        "endpoint policy must track failed recipe exhaustion and cache a working recipe level",
+        "recipeExhausted" in probe_coordinator_h
+        and "workingRecipeLevel" in probe_coordinator
+        and "cachedRecipeLevel" in probe_coordinator_h,
+        "probe coordinator must track failed recipe exhaustion and cache a working recipe level",
         failures,
     )
     require(
@@ -142,7 +153,7 @@ def main() -> int:
     )
 
     require(
-        "MT_PROXY_ENDPOINT_RECIPE_MAX_LEVEL = 4" in endpoint_policy,
+        "MT_PROXY_PROBE_RECIPE_MAX_LEVEL = 4" in probe_coordinator,
         "compatibility ladder must have four retry levels before endpoint exhaustion",
         failures,
     )
@@ -160,6 +171,7 @@ def main() -> int:
     )
     require(
         "recipeCacheKey" in endpoint_policy_h
+        and "ProbeKey" in probe_coordinator_h
         and "currentMtProxyRecipeCacheKey" in state_machine_h
         and "currentMtProxyRecipeCacheKey" in socket
         and "mtProxySecretHashForRecipeKey" in socket,
@@ -167,10 +179,10 @@ def main() -> int:
         failures,
     )
     require(
-        "recipeKey = context.recipeCacheKey" in endpoint_policy
-        and "recipeLevelForEndpoint(currentMtProxyRecipeCacheKey)" in socket
-        and "lastRecipeDiagnosticForEndpoint(currentMtProxyRecipeCacheKey)" in socket,
-        "recipe failure/adaptation must read and write the recipe cache key, not the public endpoint key",
+        "probeKey.key = currentMtProxyProbeKey" in socket
+        and "recipeLevelForProbe(currentMtProxyProbeKey)" in socket
+        and "lastRecipeDiagnosticForProbe(currentMtProxyProbeKey)" in socket,
+        "recipe failure/adaptation must read and write the probe key, not the public endpoint key",
         failures,
     )
     require(
@@ -202,12 +214,12 @@ def main() -> int:
         "post-ClientHello compatibility failures must not escalate by enabling ClientHello fragmentation",
         failures,
     )
-    handshake_ok_body = block(endpoint_policy, "void MtProxyEndpointPolicy::recordHandshakeOk", "MtProxyEndpointPolicy::DataPathSuccessResult")
+    handshake_ok_body = block(probe_coordinator, "void MtProxyProbeCoordinator::completeSuccess", "void MtProxyProbeCoordinator::completeUnsupported")
     require(
         "server_hello_hmac_ok" in handshake_ok_body
-        and "recipeCacheKey" in handshake_ok_body
-        and "workingRecipeLevel = recipeLevel" in handshake_ok_body,
-        "server_hello_hmac_ok must cache the current working recipe for endpoint+secret+SNI",
+        and "probeKey" in handshake_ok_body
+        and "state.workingRecipeLevel = state.recipeLevel" in handshake_ok_body,
+        "server_hello_hmac_ok must cache the current working recipe for the exact probe key",
         failures,
     )
 

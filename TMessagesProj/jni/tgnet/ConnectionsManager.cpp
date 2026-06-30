@@ -4215,23 +4215,25 @@ void ConnectionsManager::cancelProxyCheck(int64_t pingId) {
     });
 }
 
-void ConnectionsManager::cancelProxyEndpointAttempts(std::string endpointKey, std::string reason) {
-    if (endpointKey.empty()) {
+void ConnectionsManager::cancelProxyEndpointAttempts(std::string endpointKey, std::string probeKey, std::string reason) {
+    if (endpointKey.empty() && probeKey.empty()) {
         return;
     }
-    scheduleTask([&, endpointKey, reason] {
+    scheduleTask([&, endpointKey, probeKey, reason] {
         int32_t cancelled = 0;
         activeConnectionsCopy.resize(activeConnections.size());
         std::copy(std::begin(activeConnections), std::end(activeConnections), std::begin(activeConnectionsCopy));
         for (auto connection : activeConnectionsCopy) {
-            if (connection == nullptr || !connection->matchesMtProxyEndpointKey(endpointKey)) {
+            if (connection == nullptr
+                    || (!connection->matchesMtProxyEndpointKey(endpointKey)
+                            && !connection->matchesMtProxyProbeKey(probeKey))) {
                 continue;
             }
             connection->cancelMtProxyEndpointAttempt(reason.c_str());
             cancelled++;
         }
         if (LOGS_ENABLED) {
-            DEBUG_D("proxy_endpoint_cancel endpoint=%s reason=%s cancelled=%d active=%u", endpointKey.c_str(), reason.c_str(), cancelled, (uint32_t) activeConnections.size());
+            DEBUG_D("proxy_endpoint_cancel endpoint=%s probe=%s reason=%s cancelled=%d active=%u", endpointKey.c_str(), probeKey.c_str(), reason.c_str(), cancelled, (uint32_t) activeConnections.size());
         }
     });
 }

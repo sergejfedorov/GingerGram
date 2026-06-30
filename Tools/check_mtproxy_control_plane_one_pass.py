@@ -157,8 +157,8 @@ def main() -> int:
     phase_contract = read(TOOLS / "mtproxy_phase_contract.py")
 
     require("enum Origin" in event and "ACTIVE_PROXY" in event and "PROXY_CHECK" in event and "PROXY_LIST_ROW" in event, "ProxyConnectionEvent must carry explicit origin values", failures)
-    require("origin" in wrapper and "onProxyConnectionStageChanged" in wrapper and "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;)V" in wrapper, "JNI proxy stage callback must carry origin", failures)
-    require("onProxyConnectionStageChanged(int32_t instanceNum, std::string diagnostic, std::string endpointKey, std::string origin)" in defines, "native delegate must expose proxy stage origin", failures)
+    require("origin" in wrapper and "probeKey" in wrapper and "onProxyConnectionStageChanged" in wrapper and "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V" in wrapper, "JNI proxy stage callback must carry origin and probe key", failures)
+    require("onProxyConnectionStageChanged(int32_t instanceNum, std::string diagnostic, std::string endpointKey, std::string probeKey, std::string origin)" in defines, "native delegate must expose proxy stage origin and probe key", failures)
     require("decision=proxy_list_only" in runtime and "Origin.ACTIVE_PROXY" in runtime, "ProxyRuntimeStateStore must keep proxy-check/candidate telemetry out of active visible status", failures)
 
     require("isOneShotTerminal" in phase_policy, "ProxyPhasePolicy must expose one-shot terminal verdicts", failures)

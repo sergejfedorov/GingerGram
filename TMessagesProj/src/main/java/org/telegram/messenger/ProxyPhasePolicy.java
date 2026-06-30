@@ -97,6 +97,8 @@ public final class ProxyPhasePolicy {
     }
 
     private static PhaseInfo classify(String phase) {
+        // Coordinator-owned exact phases: mtproxy_probe_wait, mtproxy_probe_wait_timeout,
+        // faketls_server_hello_wait_timeout, server_closed_after_client_hello.
         switch (ProxyCheckDiagnostics.normalize(phase)) {
             case ProxyCheckDiagnostics.OK:
             case ProxyCheckDiagnostics.CHECKING:
@@ -107,6 +109,7 @@ public final class ProxyPhasePolicy {
 
             case ProxyCheckDiagnostics.ADMISSION_QUEUE:
             case ProxyCheckDiagnostics.ENDPOINT_COOLDOWN:
+            case ProxyCheckDiagnostics.MTPROXY_PROBE_WAIT:
             case ProxyCheckDiagnostics.PHASE_ADAPTIVE_RECIPE:
             case ProxyCheckDiagnostics.SECRET_DOMAIN_SANITIZED:
             case ProxyCheckDiagnostics.CONNECT_START:
@@ -139,6 +142,7 @@ public final class ProxyPhasePolicy {
 
             case ProxyCheckDiagnostics.ADMISSION_TIMEOUT:
             case ProxyCheckDiagnostics.ENDPOINT_COOLDOWN_TIMEOUT:
+            case ProxyCheckDiagnostics.MTPROXY_PROBE_WAIT_TIMEOUT:
                 return failure(KeyScope.EXACT, false, false);
 
             case ProxyCheckDiagnostics.TCP_CONNECT_GATE_TIMEOUT:
@@ -161,6 +165,8 @@ public final class ProxyPhasePolicy {
                 return failure(KeyScope.NETWORK, true, true);
 
             case ProxyCheckDiagnostics.TRUE_CLIENT_HELLO_TIMEOUT:
+            case ProxyCheckDiagnostics.FAKETLS_SERVER_HELLO_WAIT_TIMEOUT:
+            case ProxyCheckDiagnostics.SERVER_CLOSED_AFTER_CLIENT_HELLO:
             case ProxyCheckDiagnostics.CLIENT_HELLO_SENT_NO_SERVER_HELLO:
             case ProxyCheckDiagnostics.TLS_ALERT_AFTER_CLIENT_HELLO:
             case ProxyCheckDiagnostics.SHORT_TLS_RESPONSE_AFTER_CLIENT_HELLO:
