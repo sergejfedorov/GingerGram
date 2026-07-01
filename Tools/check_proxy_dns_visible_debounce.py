@@ -196,7 +196,7 @@ def main() -> int:
         and dns_connection_hold_idx < visible_write_idx
         and "ProxyCheckDiagnostics.CONNECTION_NOT_STARTED" in store
         and "previous_dns_outage" in store
-        and 'return new ProxyRuntimeStateStore.Decision("telemetry_only", event.phase, event.endpointKey, false, false, false)' in on_native_stage,
+        and 'return new ProxyRuntimeStateStore.Decision("telemetry_only", event.phase, event.endpointKey, verdict, false, false, false)' in on_native_stage,
         "connection_not_started after a DNS outage/resolve failure must stay telemetry_only before visible mirror/backoff/rotation",
         failures,
     )

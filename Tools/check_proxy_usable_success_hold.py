@@ -348,13 +348,15 @@ def main() -> int:
     )
     fresh_failure_hold_idx = native_stage.find("ProxyVisibleStateStore.shouldHoldVisiblePhaseByFreshFailure(currentProxy, event)")
     fresh_failure_decision_idx = native_stage.find('return new ProxyRuntimeStateStore.Decision("held_by_fresh_failure"')
+    mirror_visible_idx = native_stage.find("ProxyVisibleStateStore.mirrorVisiblePhaseIfAllowed(currentProxy, event")
     require(
         "static boolean shouldHoldVisiblePhaseByFreshFailure" in visible
         and fresh_failure_hold_idx >= 0
         and fresh_failure_decision_idx >= 0
+        and mirror_visible_idx >= 0
         and visible_write_idx >= 0
-        and fresh_failure_hold_idx < native_stage.find("ProxyVisibleStateStore.mirrorVisiblePhaseIfAllowed(currentProxy, event)")
-        and fresh_failure_decision_idx < native_stage.find("ProxyVisibleStateStore.mirrorVisiblePhaseIfAllowed(currentProxy, event)"),
+        and fresh_failure_hold_idx < mirror_visible_idx
+        and fresh_failure_decision_idx < mirror_visible_idx,
         "fresh failure hold must return held_by_fresh_failure before a retry live phase can become visible_only",
         failures,
     )
