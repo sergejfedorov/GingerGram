@@ -74,6 +74,33 @@ def verify_runtime_contract(failures: list[str]) -> None:
         failures,
     )
 
+    bad_probe_wait_timeout_overwrite = run_verifier(
+        base_log(
+            "06-30 14:00:20.000 proxy_control decision=visible_only source=native_stage origin=active_socket account=1 phase=mtproxy_probe_wait_timeout endpoint=fast2.mtproxy.zip:443:ee:xapi.ozon.ru probe=fast2.mtproxy.zip:443:secret_hash=1111111111111111:xapi.ozon.ru",
+            "06-30 14:00:20.050 proxy_control decision=visible_only source=native_stage origin=active_socket account=1 phase=mtproxy_probe_wait endpoint=fast2.mtproxy.zip:443:ee:xapi.ozon.ru probe=fast2.mtproxy.zip:443:secret_hash=1111111111111111:xapi.ozon.ru",
+        )
+    )
+    require(
+        bad_probe_wait_timeout_overwrite.returncode != 0
+        and "mtproxy_probe_wait_timeout overwritten by visible mtproxy_probe_wait" in bad_probe_wait_timeout_overwrite.stderr,
+        "runtime verifier must reject probe_wait_timeout being overwritten by a visible probe_wait replay",
+        failures,
+    )
+
+    good_probe_wait_retry = run_verifier(
+        base_log(
+            "06-30 14:00:21.000 proxy_control decision=visible_only source=native_stage origin=active_socket account=1 phase=mtproxy_probe_wait_timeout endpoint=fast2.mtproxy.zip:443:ee:xapi.ozon.ru probe=fast2.mtproxy.zip:443:secret_hash=1111111111111111:xapi.ozon.ru",
+            "06-30 14:00:21.050 proxy_control decision=held_by_fresh_failure source=native_stage origin=active_socket account=1 phase=mtproxy_probe_wait endpoint=fast2.mtproxy.zip:443:ee:xapi.ozon.ru probe=fast2.mtproxy.zip:443:secret_hash=1111111111111111:xapi.ozon.ru held_by=mtproxy_probe_wait_timeout",
+            "06-30 14:00:27.100 connection(0x2) mtproxy_startup probe_wait_timer_fire key=fast2.mtproxy.zip:443:secret_hash=1111111111111111:xapi.ozon.ru endpoint=fast2.mtproxy.zip:443:ee:xapi.ozon.ru",
+            "06-30 14:00:27.120 connection(0x2) mtproxy_startup probe_start key=fast2.mtproxy.zip:443:secret_hash=1111111111111111:xapi.ozon.ru endpoint=fast2.mtproxy.zip:443:ee:xapi.ozon.ru generation=2",
+        )
+    )
+    require(
+        good_probe_wait_retry.returncode == 0,
+        good_probe_wait_retry.stderr.strip() or "runtime verifier must accept held probe_wait_timeout followed by bounded new-owner retry",
+        failures,
+    )
+
     bad_eof_alias = run_verifier(
         base_log(
             "06-30 14:01:00.000 connection(0x1) mtproxy_startup client_hello_sent bytes=512 expected=512 domain_len=13",
@@ -219,6 +246,20 @@ def main() -> int:
     require(
         "state.cursor.generation != state.joinBudgetAnchorCursorGen" in begin_or_join_body,
         "join budget must be anchored to recipe-cursor progress, not bare generation",
+        failures,
+    )
+    require(
+        "ownerMakingProgress = (now - state.joinBudgetAnchorMs) < MT_PROXY_PROBE_JOIN_TOTAL_BUDGET_MS" in begin_or_join_body
+        and begin_or_join_body.find("DecisionKind::JoinExisting") < begin_or_join_body.find("enterProbing(state, now)")
+        and "enterProbing(state, now)" in begin_or_join_body
+        and "DecisionKind::StartOwner" in begin_or_join_body,
+        "a joiner whose probe-wait budget expires must leave mtproxy_probe_wait and start a new owner attempt",
+        failures,
+    )
+    require(
+        "MTPROXY_PROBE_WAIT_TIMEOUT" in phase_policy
+        and "return failure(KeyScope.EXACT, false, false)" in phase_policy[phase_policy.find("case ProxyCheckDiagnostics.MTPROXY_PROBE_WAIT_TIMEOUT:"):],
+        "mtproxy_probe_wait_timeout must remain a visible exact sticky failure, not a punitive rotation trigger",
         failures,
     )
     require("reapExpired" not in begin_or_join_body, "the reaper must run on the network-thread tick, not inside beginOrJoin", failures)

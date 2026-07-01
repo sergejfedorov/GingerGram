@@ -44,6 +44,7 @@ NATIVE_SOCKET_OBSERVATION_FACADE_PHASES = {
 }
 VISIBLE_SUCCESS_HOLD_MS = 45 * 1000
 DNS_VISIBLE_DELAY_MS = 800
+FRESH_FAILURE_HOLD_MS = 15 * 1000
 DNS_VISIBLE_TELEMETRY_PHASES = {"host_resolve_start", "dns_coalesce_wait"}
 LIVE_VISIBLE_OVERWRITE_PHASES = {
     "dns_cache_hit",
@@ -487,6 +488,37 @@ def verify_dns_visible_debounce(lines: list[str]) -> list[str]:
     return failures
 
 
+def verify_probe_wait_timeout_replay(lines: list[str]) -> list[str]:
+    failures: list[str] = []
+    probe_wait_timeouts: list[tuple[int | None, str, str, str]] = []
+    for line in lines:
+        decision = proxy_control_decision(line)
+        if not decision:
+            continue
+        phase = line_field(line, "phase")
+        endpoint = line_field(line, "endpoint")
+        probe = line_field(line, "probe")
+        if phase == "mtproxy_probe_wait_timeout" and decision in {"visible_only", "backoff"}:
+            probe_wait_timeouts.append((line_time_ms(line), endpoint, probe, line))
+            continue
+        if decision != "visible_only" or phase != "mtproxy_probe_wait":
+            continue
+        current_time = line_time_ms(line)
+        for timeout_time, timeout_endpoint, timeout_probe, timeout_line in probe_wait_timeouts:
+            if endpoint and timeout_endpoint and not same_proxy_endpoint(timeout_endpoint, endpoint):
+                continue
+            if probe and timeout_probe and probe != timeout_probe:
+                continue
+            if timeout_time is not None and current_time is not None and current_time - timeout_time > FRESH_FAILURE_HOLD_MS:
+                continue
+            failures.append(
+                "mtproxy_probe_wait_timeout overwritten by visible mtproxy_probe_wait; "
+                f"use held_by_fresh_failure/telemetry or start a new owner attempt: {line} after {timeout_line}"
+            )
+            break
+    return failures
+
+
 def verify_rotation_hysteresis(lines: list[str]) -> list[str]:
     failures: list[str] = []
     usable_successes: list[tuple[int | None, str, str]] = []
@@ -854,6 +886,7 @@ def verify_lines(lines: list[str]) -> list[str]:
     failures.extend(verify_shadowed_socket_backoff(lines))
     failures.extend(verify_usable_hold_anchor(lines))
     failures.extend(verify_dns_visible_debounce(lines))
+    failures.extend(verify_probe_wait_timeout_replay(lines))
     failures.extend(verify_rotation_hysteresis(lines))
     failures.extend(verify_dns_outage_rotation_hold(lines))
     failures.extend(verify_rotated_away_endpoint_hold(lines))
