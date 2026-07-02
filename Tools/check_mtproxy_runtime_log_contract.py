@@ -111,7 +111,7 @@ def main() -> int:
         and "observation.phase = MtProxyPhase::PostHandshakeNoAppdata" in socket
         and "observation.phase = MtProxyPhase::FirstTlsAppRecv" in socket
         and "observation.phase = MtProxyPhase::FirstMtproxyPacketRecv" in socket
-        and "mtProxySocketObservationIsHighRiskPhase(terminalDiagnostic.c_str())" in socket,
+        and "mtProxySocketObservationIsHighRiskPhase(resolution.terminalDiagnostic.c_str())" in socket,
         "high-risk native publish paths must use MtProxySocketObservation without rewriting every stage",
     )
     require(

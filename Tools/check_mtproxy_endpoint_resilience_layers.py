@@ -190,7 +190,7 @@ def main():
         "endpoint failure recording must pass connection priority into cooldown calculation and log it",
     )
     require(
-        "recordMtProxyEndpointFailure(terminalDiagnostic.c_str()" in socket,
+        "recordMtProxyEndpointFailure(resolution.terminalDiagnostic.c_str()" in socket,
         "closeSocket must feed derived terminal diagnostics back into endpoint resilience state",
     )
     timer_start = socket.find("void ConnectionSocket::scheduleProxyHandshakeAdmissionTimer")
@@ -275,7 +275,7 @@ def main():
     early_drop_idx = close_body.find('proxyCheckDiagnostic = "dropped_early_after_appdata";')
     suppress_idx = close_body.find("bool suppressProxyCloseDiagnostic = false;")
     suppress_late_drop_idx = close_body.find('proxyCheckDiagnostic == "dropped_after_appdata"', suppress_idx)
-    publish_idx = close_body.find("publishProxyConnectionStage(terminalDiagnostic.c_str())")
+    publish_idx = close_body.find("publishProxyConnectionStage(resolution.terminalDiagnostic.c_str())")
     require(
         "suppressProxyCloseDiagnostic" in close_body
         and has_phase(close_body, "post_handshake_no_appdata", phase_constants)
@@ -294,9 +294,9 @@ def main():
         "closeSocket must publish early post-appdata drops while suppressing only later already-usable post-appdata closes",
     )
     require(
-        "!suppressProxyCloseDiagnostic && reason != 0 && isCurrentMtProxyConnection() && !terminalDiagnostic.empty()" in close_body
-        and "publishProxyConnectionStage(terminalDiagnostic.c_str())" in close_body
-        and "recordMtProxyEndpointFailure(terminalDiagnostic.c_str(), \"closeSocket\")" in close_body,
+        "!resolution.suppress && reason != 0 && isCurrentMtProxyConnection() && !resolution.terminalDiagnostic.empty()" in close_body
+        and "publishProxyConnectionStage(resolution.terminalDiagnostic.c_str())" in close_body
+        and "recordMtProxyEndpointFailure(resolution.terminalDiagnostic.c_str(), \"closeSocket\")" in close_body,
         "closeSocket must still publish and record real non-suppressed MTProxy close diagnostics",
     )
     require(

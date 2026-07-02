@@ -672,6 +672,31 @@ def main() -> int:
         failures,
     )
     close_pipeline = method_body(socket, "void ConnectionSocket::closeSocket", "void ConnectionSocket::onEvent")
+    close_dispatcher = method_body(socket, "void ConnectionSocket::closeSocket", "bool ConnectionSocket::closeStepReentryGuard")
+    dispatcher_calls = [
+        "closeStepReentryGuard(reason, error)",
+        "closeStepTransportGate();",
+        "closeStepResolveDiagnostic(reason, error);",
+        "closeStepLogDisconnect(reason, error, closeResolution);",
+        "closeStepPublishVerdict(reason, closeResolution);",
+        "closeStepReleaseResources();",
+        "closeStepOsTeardown();",
+        "closeStepResetStateAndNotify(reason, error);",
+    ]
+    dispatcher_positions = [close_dispatcher.find(call) for call in dispatcher_calls]
+    require(
+        all(position >= 0 for position in dispatcher_positions)
+        and dispatcher_positions == sorted(dispatcher_positions),
+        "closeSocket must stay a pure dispatcher over the eight named closeStep* methods, in order",
+        failures,
+    )
+    require(
+        "recordMtProxyEndpointFailure" not in close_dispatcher
+        and "releaseMtProxyProbeLease" not in close_dispatcher
+        and "deriveMtProxyTerminalDiagnostic" not in close_dispatcher,
+        "closeSocket must not inline step logic back into the dispatcher; step semantics live on the closeStep* methods",
+        failures,
+    )
     close_anchor_chains = (
         [f"[close-step {step}/8]" for step in range(1, 9)],
         # Semantic order constraints the steps encode: resolve the diagnostic
@@ -1123,11 +1148,11 @@ def main() -> int:
     )
     require(
         "std::string terminalDiagnostic = deriveMtProxyTerminalDiagnostic(reason, error);" in close_body
-        and "publishProxyConnectionStage(terminalDiagnostic.c_str())" in close_body
-        and 'recordMtProxyEndpointFailure(terminalDiagnostic.c_str(), "closeSocket")' in close_body
+        and "publishProxyConnectionStage(resolution.terminalDiagnostic.c_str())" in close_body
+        and 'recordMtProxyEndpointFailure(resolution.terminalDiagnostic.c_str(), "closeSocket")' in close_body
         and "publishProxyConnectionStage(proxyCheckDiagnostic.c_str())" not in close_body
         and 'recordMtProxyEndpointFailure(proxyCheckDiagnostic.c_str(), "closeSocket")' not in close_body,
-        "closeSocket must publish/record derived terminal diagnostics, not the mutable in-flight proxyCheckDiagnostic",
+        "closeSocket must publish/record the step-3 resolution's terminal diagnostic, not the mutable in-flight proxyCheckDiagnostic",
         failures,
     )
     close_policy_body = method_body(socket, "void ConnectionSocket::checkCloseSocketAction", "void ConnectionSocket::checkProxyHandshakeAdmissionRelease")

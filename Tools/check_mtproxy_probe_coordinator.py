@@ -341,7 +341,7 @@ def main() -> int:
         failures,
     )
     close_idx = socket_cpp.find("void ConnectionSocket::closeSocket(")
-    close_recfail_idx = socket_cpp.find("recordMtProxyEndpointFailure(terminalDiagnostic", close_idx)
+    close_recfail_idx = socket_cpp.find("recordMtProxyEndpointFailure(resolution.terminalDiagnostic", close_idx)
     close_release_idx = socket_cpp.find("releaseMtProxyProbeLease()", close_idx)
     require(
         close_idx >= 0 and close_recfail_idx >= 0 and close_release_idx >= 0 and close_recfail_idx < close_release_idx,
