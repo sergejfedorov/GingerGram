@@ -2109,6 +2109,8 @@
     <string name="Info">Info</string>
     <string name="PeerId">ID</string>
     <string name="PeerIdCopied">ID copied to clipboard</string>
+    <string name="ProfileDc">Data center</string>
+    <string name="ProfileDcCopied">Data center copied to clipboard</string>
     <string name="Phone">Phone</string>
     <string name="SharedContent">Shared content</string>
     <string name="SharedLinks">Links</string>

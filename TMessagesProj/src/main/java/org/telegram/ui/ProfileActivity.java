@@ -649,6 +649,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
     private int infoEndRowEmpty;
     private int phoneRow;
     private int peerIdRow;
+    private int dcIdRow;
     private int noteRow;
     private int locationRow;
     private int userInfoRow;
@@ -4448,6 +4449,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                 openAddMember();
             } else if (position == peerIdRow) {
                 copyPeerId();
+            } else if (position == dcIdRow) {
+                copyDcId();
             } else if (position == usernameRow) {
                 processOnClickOrPress(position, view, x, y);
             } else if (position == locationRow) {
@@ -7276,9 +7279,69 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         return true;
     }
 
+    // The API never reports another account's home DC directly. Like other
+    // forks, we take dc_id from the profile photo: avatars are stored on the
+    // owner's home DC. Accounts without an avatar keep the row hidden, except
+    // our own account, where the current datacenter is known natively.
+    private int getDcIdValue() {
+        if (userId != 0) {
+            final TLRPC.User user = getMessagesController().getUser(userId);
+            if (user != null && user.photo != null && user.photo.dc_id > 0) {
+                return user.photo.dc_id;
+            }
+            if (UserObject.isUserSelf(user)) {
+                return getConnectionsManager().getCurrentDatacenterId();
+            }
+        } else if (chatId != 0) {
+            final TLRPC.Chat chat = getMessagesController().getChat(chatId);
+            if (chat != null && chat.photo != null && chat.photo.dc_id > 0) {
+                return chat.photo.dc_id;
+            }
+        }
+        return 0;
+    }
+
+    private static String getDcName(int dcId) {
+        switch (dcId) {
+            case 1:
+                return "Miami (pluto)";
+            case 2:
+                return "Amsterdam (venus)";
+            case 3:
+                return "Miami (aurora)";
+            case 4:
+                return "Amsterdam (vesta)";
+            case 5:
+                return "Singapore (flora)";
+            default:
+                return null;
+        }
+    }
+
+    private String getDcIdText() {
+        final int dcId = getDcIdValue();
+        if (dcId <= 0) {
+            return null;
+        }
+        final String name = getDcName(dcId);
+        return name != null ? String.format(Locale.US, "DC%d, %s", dcId, name) : String.format(Locale.US, "DC%d", dcId);
+    }
+
+    private boolean copyDcId() {
+        final String dcText = getDcIdText();
+        if (TextUtils.isEmpty(dcText)) {
+            return false;
+        }
+        AndroidUtilities.addToClipboard(dcText);
+        BulletinFactory.of(this).createCopyBulletin(LocaleController.getString(R.string.ProfileDcCopied), resourcesProvider).show();
+        return true;
+    }
+
     private boolean processOnClickOrPress(final int position, final View view, final float x, final float y) {
         if (position == peerIdRow) {
             return copyPeerId();
+        } else if (position == dcIdRow) {
+            return copyDcId();
         } else if (position == usernameRow || position == setUsernameRow) {
             final String username;
             final TLRPC.TL_username usernameObj;
@@ -10455,6 +10518,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
         infoEndRowEmpty = -1;
         phoneRow = -1;
         peerIdRow = -1;
+        dcIdRow = -1;
         noteRow = -1;
         userInfoRow = -1;
         locationRow = -1;
@@ -10653,6 +10717,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     usernameRow = rowCount++;
                 }
                 peerIdRow = rowCount++;
+                if (getDcIdValue() > 0) {
+                    dcIdRow = rowCount++;
+                }
                 if (userInfo != null) {
                     if (userInfo.birthday != null) {
                         birthdayRow = rowCount++;
@@ -10773,6 +10840,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             }
             usernameRow = rowCount++;
             peerIdRow = rowCount++;
+            if (getDcIdValue() > 0) {
+                dcIdRow = rowCount++;
+            }
             if (actionsView == null) {
                 notificationsSimpleRow = rowCount++;
             }
@@ -10820,6 +10890,9 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                     infoHeaderRow = rowCount++;
                 }
                 peerIdRow = rowCount++;
+                if (getDcIdValue() > 0) {
+                    dcIdRow = rowCount++;
+                }
             }
             if (emptyRow < 0 && emptyRow2 < 0) {
                 if (hasMusic || peerColor != null || actionsView == null) {
@@ -13417,6 +13490,8 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
                         detailCell.setTextAndValue(text, LocaleController.getString(isFragmentPhoneNumber ? R.string.AnonymousNumber : R.string.PhoneMobile), false);
                     } else if (position == peerIdRow) {
                         detailCell.setTextAndValue(getPeerIdText(), LocaleController.getString(R.string.PeerId), false);
+                    } else if (position == dcIdRow) {
+                        detailCell.setTextAndValue(getDcIdText(), LocaleController.getString(R.string.ProfileDc), false);
                     } else if (position == noteRow) {
                         final TLRPC.UserFull userInfo = getMessagesController().getUserFull(userId);
                         if (userInfo == null) return;
@@ -14219,7 +14294,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             if (position == infoHeaderRow || position == membersHeaderRow || position == settingsSectionRow2 ||
                     position == numberSectionRow || position == helpHeaderRow || position == debugHeaderRow || position == botPermissionsHeader) {
                 return VIEW_TYPE_HEADER;
-            } else if (position == phoneRow || position == peerIdRow || position == locationRow || position == numberRow || position == birthdayRow) {
+            } else if (position == phoneRow || position == peerIdRow || position == dcIdRow || position == locationRow || position == numberRow || position == birthdayRow) {
                 return VIEW_TYPE_TEXT_DETAIL;
             } else if (position == usernameRow || position == setUsernameRow) {
                 return VIEW_TYPE_TEXT_DETAIL_MULTILINE;
@@ -15619,6 +15694,7 @@ public class ProfileActivity extends BaseFragment implements NotificationCenter.
             put(++pointer, infoEndRowEmpty, sparseIntArray);
             put(++pointer, phoneRow, sparseIntArray);
             put(++pointer, peerIdRow, sparseIntArray);
+            put(++pointer, dcIdRow, sparseIntArray);
             put(++pointer, noteRow, sparseIntArray);
             put(++pointer, locationRow, sparseIntArray);
             put(++pointer, userInfoRow, sparseIntArray);
