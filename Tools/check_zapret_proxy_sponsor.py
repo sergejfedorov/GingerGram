@@ -11,6 +11,7 @@ DIALOGS_ADAPTER = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/Adapters/D
 DIALOGS_ACTIVITY = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/DialogsActivity.java"
 DIALOG_CELL = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/Cells/DialogCell.java"
 SETTINGS_ACTIVITY = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/SettingsActivity.java"
+FREE_PROXY_SETTINGS_ACTIVITY = ROOT / "TMessagesProj/src/main/java/org/telegram/ui/FreeProxySettingsActivity.java"
 SHARED_CONFIG = ROOT / "TMessagesProj/src/main/java/org/telegram/messenger/SharedConfig.java"
 STRINGS = ROOT / "TMessagesProj/src/main/res/values/strings.xml"
 
@@ -45,6 +46,7 @@ def main() -> int:
     dialogs_activity = DIALOGS_ACTIVITY.read_text(encoding="utf-8")
     dialog_cell = DIALOG_CELL.read_text(encoding="utf-8")
     settings_activity = SETTINGS_ACTIVITY.read_text(encoding="utf-8")
+    free_proxy_settings_activity = FREE_PROXY_SETTINGS_ACTIVITY.read_text(encoding="utf-8")
     shared_config = SHARED_CONFIG.read_text(encoding="utf-8")
     strings = STRINGS.read_text(encoding="utf-8")
     errors: list[str] = []
@@ -156,42 +158,49 @@ def main() -> int:
     )
 
     require(
-        "items.add(UItem.asHeader(getString(R.string.FreeProxyChannels)))" in settings_activity,
-        "Settings must include the FreeProxyChannels block",
+        "SettingCell.Factory.of(1004," in settings_activity
+        and "getString(R.string.FreeProxyChannels)" in settings_activity
+        and "case 1004:" in settings_activity
+        and "presentSettingFragment(new FreeProxySettingsActivity())" in settings_activity,
+        "Settings must open the dedicated FreeProxySettingsActivity",
+    )
+    require(
+        "items.add(UItem.asHeader(LocaleController.getString(R.string.FreeProxyChannels)))" in free_proxy_settings_activity,
+        "FreeProxySettingsActivity must include the FreeProxyChannels block",
     )
     require(
         re.search(
-            r"SettingCell\.Factory\.of\(27,[^;]+getString\(R\.string\.ZapretVpnSponsorSetting\)[^;]+SharedConfig\.showZapretVpnSponsor",
-            settings_activity,
+            r"SettingCell\.Factory\.of\(27,[^;]+LocaleController\.getString\(R\.string\.ZapretVpnSponsorSetting\)[^;]+SharedConfig\.showZapretVpnSponsor",
+            free_proxy_settings_activity,
             re.DOTALL,
         )
         is not None,
-        "Settings must include a row that toggles the sponsor visibility",
+        "FreeProxySettingsActivity must include a row that toggles the sponsor visibility",
     )
     require(
-        "SharedConfig.showZapretVpnSponsor = !SharedConfig.showZapretVpnSponsor" in settings_activity
-        and "SharedConfig.saveConfig()" in settings_activity,
-        "Settings must toggle and persist sponsor visibility",
+        "SharedConfig.showZapretVpnSponsor = !SharedConfig.showZapretVpnSponsor" in free_proxy_settings_activity
+        and "SharedConfig.saveConfig()" in free_proxy_settings_activity,
+        "FreeProxySettingsActivity must toggle and persist sponsor visibility",
     )
 
     for item_id, (string_name, url) in EXPECTED_LINKS.items():
         require(
             re.search(
-                rf"SettingCell\.Factory\.of\({item_id},[^;]+getString\(R\.string\.{string_name}\)\)",
-                settings_activity,
+                rf"SettingCell\.Factory\.of\({item_id},[^;]+LocaleController\.getString\(R\.string\.{string_name}\)\)",
+                free_proxy_settings_activity,
                 re.DOTALL,
             )
             is not None,
-            f"Settings item {item_id} must use {string_name}",
+            f"FreeProxySettingsActivity item {item_id} must use {string_name}",
         )
         require(
             re.search(
                 rf"case {item_id}:\s+Browser\.openUrl\(getParentActivity\(\), \"{re.escape(url)}\"\);\s+break;",
-                settings_activity,
+                free_proxy_settings_activity,
                 re.DOTALL,
             )
             is not None,
-            f"Settings item {item_id} must open {url}",
+            f"FreeProxySettingsActivity item {item_id} must open {url}",
         )
 
     if errors:
