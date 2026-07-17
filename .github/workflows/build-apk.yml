@@ -39,22 +39,22 @@ jobs:
           - flavor: Arm64
             flavor_dir: arm64
             abi: arm64-v8a
-            artifact: GingerGram-standalone-arm64-v8a
+            artifact: ZaStoGram-standalone-arm64-v8a
             ccache_key: ccache-arm64-v8a-standalone
           - flavor: Armv7
             flavor_dir: armv7
             abi: armeabi-v7a
-            artifact: GingerGram-standalone-armeabi-v7a
+            artifact: ZaStoGram-standalone-armeabi-v7a
             ccache_key: ccache-armeabi-v7a-standalone
           - flavor: X86
             flavor_dir: x86
             abi: x86
-            artifact: GingerGram-standalone-x86
+            artifact: ZaStoGram-standalone-x86
             ccache_key: ccache-x86-standalone
           - flavor: X64
             flavor_dir: x64
             abi: x86_64
-            artifact: GingerGram-standalone-x86_64
+            artifact: ZaStoGram-standalone-x86_64
             ccache_key: ccache-x86_64-standalone
     steps:
       - name: Checkout
